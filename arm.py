@@ -117,19 +117,20 @@ def setAngle(event, t):
     deg = degree(t)
     ch = jKeys.index(event)
 
+    deg += offsets[event]
+
+    if event == "J2":
+        deg *= -1
+
     v = [ 90, 97, 105, 100, 90, 90 ]
 
     deg *= float(v[ch]) / 90.0
 
-    deg += 90 + offsets[event]
+    deg += 90
     print(event, ch, deg, t)
 
     cmd = "%d,%.1f\r" % (ch, deg)
     n = ser.write(cmd.encode('utf-8'))
-    print("write", n, cmd.strip())
-
-    ret = ser.readline().decode('utf-8')
-    print("read", ret.strip())
 
     ret = ser.readline().decode('utf-8')
     print("read", ret.strip())
@@ -137,11 +138,6 @@ def setAngle(event, t):
     return
 
     m = { "J1":0, "J2":1, "J3":2, "J4":3, "J5":4, "J6":5 }
-
-
-
-    if event == "J2":
-        t *= -1
 
     ch = m[event]
     # print("move %s ch:%d pos:%.1f" % (event, ch, t))
@@ -408,7 +404,7 @@ def test():
 loadParams()
 
 if useSerial:
-    ser = serial.Serial('COM5', 115200, timeout=3)
+    ser = serial.Serial('COM5', 115200, timeout=0.1)
 
 
     # while True:
