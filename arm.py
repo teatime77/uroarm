@@ -24,6 +24,7 @@ def arr(v):
         return np.array(v, dtype=np.float32)
     
 nax = 6
+poseDim = 5
 moving = None
 stopMoving = False
 Angles = [0] * nax
@@ -73,7 +74,7 @@ def saveParams():
 
     print("saved:" + json.dumps(params))
 
-def getPos():
+def getPose():
     dst = [ values[k] for k in posKeys ]
     dst[3] = radian(dst[3])
     dst[4] = radian(dst[4])
@@ -113,9 +114,12 @@ def setAngleNano(event, t):
     setPWM(ch, t)
 
 
-def setAngle(event, t):
-    deg = degree(t)
+def setAngle(event, deg):
+    global Angles
+
     ch = jKeys.index(event)
+
+    Angles[ch] = radian(deg)
 
     deg += offsets[event]
 
@@ -127,21 +131,20 @@ def setAngle(event, t):
     deg *= float(v[ch]) / 90.0
 
     deg += 90
-    print(event, ch, deg, t)
 
     cmd = "%d,%.1f\r" % (ch, deg)
-    n = ser.write(cmd.encode('utf-8'))
 
-    ret = ser.readline().decode('utf-8')
-    print("read", ret.strip())
+    while True:
+        try:
+            n = ser.write(cmd.encode('utf-8'))
+            break
+        except serial.SerialTimeoutException:
+            print("write time out")
+            time.sleep(1)
 
-    return
-
-    m = { "J1":0, "J2":1, "J3":2, "J4":3, "J5":4, "J6":5 }
-
-    ch = m[event]
-    # print("move %s ch:%d pos:%.1f" % (event, ch, t))
-    setPWM(ch, t)
+    ret = ser.read_all().decode('utf-8')
+    if "error" in ret:
+        print("read", ret)
 
 def getAngles():
     return [radian(values[x]) for x in jKeys]
@@ -162,23 +165,56 @@ def setOffsets():
 
     saveParams()
 
-def moveAllJoints(ds):
-    cnt = 0
-    changed = True
-    rad1 = 0.5 * math.pi / 180.0
-    while changed and not stopMoving:
-        changed = False
-        for i, (d, a) in enumerate(zip(ds, Angles)):
-            if rad1 < abs(d - a):
-                changed = True
-                Angles[i] += np.sign(d - a) * rad1
-                setAngle(jKeys[i], Angles[i])
+def moveAllJoints(dst):
+    src = [degree(x) for x in Angles]
 
-        showJoints(Angles)
-        cnt += 1
+    cnt = 30
+    for i in range(cnt):
+
+        r = float(i + 1) / float(cnt)
+
+        for j in range(nax):
+            deg = (1.0 - r) * src[j] + r * dst[j]
+            setAngle(jKeys[j], deg)
+
+        # showJoints(Angles)
         yield
 
-    print("move end", cnt)
+    print("move end")
+
+def moveIK():
+    # 初期ポーズ
+    src = calc(Angles)
+
+    # 目標ポーズ
+    dst = getPose()
+
+    cnt = 100
+    for step in range(cnt):
+
+        r = float(step + 1) / float(cnt)
+
+        # 途中のポーズ
+        pose = [0] * poseDim
+        for j in range(poseDim):
+            pose[j] = (1.0 - r) * src[j] + r * dst[j]
+
+        # 逆運動学
+        rads = IK(pose)
+
+        for j, rad in enumerate(rads):
+            # Angles[j] = rad
+            setAngle(jKeys[j], degree(rad))
+
+            showJoints(Angles)
+
+        yield
+
+    print([degree(x) for x in Angles])
+    print("move end")
+
+
+
 
 class Vec2:
     def __init__(self, x, y):
@@ -219,19 +255,20 @@ def calc(ts):
     p1 = Vec2(0, L0)
 
     p2 = p1 + (Vec2(-L1,0).rot(j1))
-    print(f'p2: %d %d' % (int(- p2.x), int(p2.y)))
+    # print(f'p2: %d %d' % (int(- p2.x), int(p2.y)))
 
     p3 = p2 + L2 * (p2 - p1).unit().rot(j2)
-    print(f'p3: %d %d' % (int(- p3.x), int(p3.y)))
+    # print(f'p3: %d %d' % (int(- p3.x), int(p3.y)))
 
     p4 = p3 + L3 * (p3 - p2).unit().rot(j3 - 0.5 * np.pi)
-    print(f'p4: %d %d' % (int(- p4.x), int(p4.y)))
+    # print(f'p4: %d %d' % (int(- p4.x), int(p4.y)))
 
     tcp = p4 + L4 * (p3 - p2).unit().rot(j3)
-    print(f'tcp: %d %d' % (int(- tcp.x), int(tcp.y)))
+    # print(f'tcp: %d %d' % (int(- tcp.x), int(tcp.y)))
 
     et = (p4 - tcp).unit()
     theta = np.arctan2(et.y, et.x)
+
     return arr([ -tcp.x, 0, tcp.y, 0, theta])
 
 def IK(pose):
@@ -243,7 +280,7 @@ def IK(pose):
 
     tcp = Vec2(-r, z)
     p4 = tcp + L4 * Vec2(math.cos(theta), math.sin(theta))
-    print(f'p4: %d %d' % (int(- p4.x), int(p4.y)))
+    # print(f'p4: %d %d' % (int(- p4.x), int(p4.y)))
 
     # tcpからp4に向かう単位ベクトル
     et = (p4 - tcp).unit()
@@ -252,7 +289,7 @@ def IK(pose):
     e4 = et.rot(radian(-90))
 
     p3 = p4 + L3 * e4
-    print(f'p3: %d %d' % (int(- p3.x), int(p3.y)))
+    # print(f'p3: %d %d' % (int(- p3.x), int(p3.y)))
 
     l = (p3 - p1).len()
 
@@ -269,10 +306,10 @@ def IK(pose):
     # p3からp2に向かう単位ベクトル
     e32 = e31.rot(alpha)
 
-    print('e31:%.2f %.2f e32:%.2f %.2f alpha:%.1f' % (e31.x, e31.y, e32.x, e32.y, degree(alpha)))
+    # print('e31:%.2f %.2f e32:%.2f %.2f alpha:%.1f' % (e31.x, e31.y, e32.x, e32.y, degree(alpha)))
 
     p2 = p3 + L2 * e32
-    print(f'p2: %d %d' % (int(- p2.x), int(p2.y)))
+    # print(f'p2: %d %d' % (int(- p2.x), int(p2.y)))
 
     ts = [0] * nax
 
@@ -286,7 +323,7 @@ def IK(pose):
 
     ts[4] = phi
 
-    print("J2:%.1f  J3:%.1f  J4:%.1f " % (degree(ts[1]), degree(ts[2]), degree(ts[3])))
+    # print("J2:%.1f  J3:%.1f  J4:%.1f " % (degree(ts[1]), degree(ts[2]), degree(ts[3])))
 
     return ts
 
@@ -404,7 +441,7 @@ def test():
 loadParams()
 
 if useSerial:
-    ser = serial.Serial('COM5', 115200, timeout=0.1)
+    ser = serial.Serial('COM5', 115200, timeout=1, write_timeout=1)
 
 
     # while True:
@@ -430,7 +467,7 @@ layout = [
         [ sg.Text('J6'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J6') ],
     ]),
     sg.Column([
-        [ sg.Text('X'), sg.Slider(range=(0,300), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='X') ],
+        [ sg.Text('X'), sg.Slider(range=(0,400), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='X') ],
         [ sg.Text('Y'), sg.Slider(range=(-300,300), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='Y') ],
         [ sg.Text('Z'), sg.Slider(range=(0,150), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='Z') ],
         [ sg.Text('R1'), sg.Slider(range=(-90,90), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='R1', resolution=1) ],
@@ -453,24 +490,36 @@ while True:
         except StopIteration:
             moving = None
             stopMoving = False
+
+            showJoints(Angles)
+
+            pos = calc(Angles)
+            showPos(pos)
+
             print("stop moving")
         
     if event in jKeys:
-        t = radian(values[event])
-        setAngle(event, t)
+        deg = values[event]
+        setAngle(event, deg)
         
         Angles = getAngles()
         pos = calc(Angles)
         showPos(pos)
         
     elif event == "Move":
-        dst = getPos()
-        ts = IK(dst)
+        # 目標ポーズ
+        pose = getPose()
 
-        # if ts is not None:
-        #     moving = moveAllJoints(ts)
+        # 逆運動学
+        rads = IK(pose)
+        if rads is None:
+            continue
+
+        degs = [ degree(x) for x in rads ]
+        moving = moveAllJoints(degs)
         
     elif event == "Stop":
+        moving = None
         stopMoving = True
         
     elif event == 'Home':
@@ -487,27 +536,12 @@ while True:
         move(dst)
         
     elif event == "Reset":
-        for i, key in enumerate(jKeys):
-            Angles[i] = 0
-            setAngle(key, 0)
-
-        showJoints([0] * nax)
-        # ts = [0] * nax
-        # moving = moveAllJoints(ts)
-
-        if False:
-            pos = calc(ts)
-            showPos(pos)
-            print("move end")
+        degs = [0] * nax
+        moving = moveAllJoints(degs)
         
     elif event == "Ready":
-        ts = [radian(5.0)] * nax
-        moving = moveAllJoints(ts)
-        
-        if False:
-            pos = calc(ts)
-            showPos(pos)
-            print("move end")
+        degs = [ 0, -60, 66, 70, 0, 0  ]
+        moving = moveAllJoints(degs)
         
     elif event == sg.WIN_CLOSED or event == 'Cancel': # if user closes window or clicks cancel
         break
