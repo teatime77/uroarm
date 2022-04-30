@@ -249,8 +249,8 @@ class Vec2:
     def __sub__(self, other):
         return Vec2(self.x - other.x, self.y - other.y)
 
-def calc(ts):
-    j0, j1, j2, j3, j4, j5 = ts
+def calc(rads):
+    j0, j1, j2, j3, j4, j5 = rads
 
     p1 = Vec2(0, L0)
 
@@ -269,7 +269,15 @@ def calc(ts):
     et = (p4 - tcp).unit()
     theta = np.arctan2(et.y, et.x)
 
-    return arr([ -tcp.x, 0, tcp.y, 0, theta])
+    r = tcp.len()
+
+    x = r * math.cos(j0)
+    y = r * math.sin(j0)
+    z = tcp.y
+
+    print('r:%.1f j0:%.1f x:%.1f y:%.1f z:%.1f' % (r, degree(j0), x, y, z))
+
+    return arr([ x, y, z, j4, theta])
 
 def IK(pose):
     x, y, z, phi, theta = pose
@@ -322,6 +330,8 @@ def IK(pose):
     ts[3] = (tcp - p4).arctan2p() - (p3 - p2).arctan2p()
 
     ts[4] = phi
+
+    ts[5] = Angles[5]
 
     # print("J2:%.1f  J3:%.1f  J4:%.1f " % (degree(ts[1]), degree(ts[2]), degree(ts[3])))
 
@@ -502,9 +512,8 @@ while True:
         deg = values[event]
         setAngle(event, deg)
         
-        Angles = getAngles()
-        pos = calc(Angles)
-        showPos(pos)
+        # pos = calc(Angles)
+        # showPos(pos)
         
     elif event == "Move":
         # 目標ポーズ
