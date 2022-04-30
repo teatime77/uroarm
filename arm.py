@@ -1,6 +1,7 @@
 import time
 import math
 import numpy as np
+import pandas as pd
 import PySimpleGUI as sg
 import json
 
@@ -165,22 +166,23 @@ def setOffsets():
 
     saveParams()
 
-def moveAllJoints(dst):
-    src = [degree(x) for x in Angles]
+def moveAllJoints(dsts):
+    for dst in dsts:
+        src = [degree(x) for x in Angles]
 
-    cnt = 30
-    for i in range(cnt):
+        cnt = 30
+        for i in range(cnt):
 
-        r = float(i + 1) / float(cnt)
+            r = float(i + 1) / float(cnt)
 
-        for j in range(nax):
-            deg = (1.0 - r) * src[j] + r * dst[j]
-            setAngle(jKeys[j], deg)
+            for j in range(nax):
+                deg = (1.0 - r) * src[j] + r * dst[j]
+                setAngle(jKeys[j], deg)
 
-        # showJoints(Angles)
-        yield
+            # showJoints(Angles)
+            yield
 
-    print("move end")
+        print("move end")
 
 def moveIK():
     # 初期ポーズ
@@ -275,9 +277,41 @@ def calc(rads):
     y = r * math.sin(j0)
     z = tcp.y
 
-    print('r:%.1f j0:%.1f x:%.1f y:%.1f z:%.1f' % (r, degree(j0), x, y, z))
+    # print('r:%.1f j0:%.1f x:%.1f y:%.1f z:%.1f' % (r, degree(j0), x, y, z))
 
     return arr([ x, y, z, j4, theta])
+
+def IK2(x, y, is_down):
+    r   = Vec2(x, y).len()
+
+    J123_x = J123_x_down if is_down else J123_x_up
+
+    xs = [ x_ for _, _, x_ in J123_x ]
+    min_x = min(xs)
+    max_x = max(xs)
+    if r < min_x or max_x < r:
+        return None
+
+    diff_x = [ abs(x_ - r) for x_ in xs ]
+    i = diff_x.index(min(diff_x))
+
+    deg1, deg23, _ = J123_x[i]
+
+    ts = [0] * nax
+
+    ts[0] = np.arctan2(y, x)
+
+    ts[1] = radian(deg1)
+
+    ts[2] = radian(deg23)
+
+    ts[3] = ts[2]
+
+    ts[4] = Angles[4]
+
+    ts[5] = Angles[5]
+
+    return ts
 
 def IK(pose):
     x, y, z, phi, theta = pose
@@ -413,7 +447,7 @@ def move(dst):
         if idx % 10 == 0:
             yield
 
-    moveAllJoints(ts)
+    moveAllJoints([ts])
         
 def test():
     global angles
@@ -448,10 +482,72 @@ def test():
     m = Jacob(Angles, src)
     print("Jacob", m, np.linalg.inv(m))
 
+def naturalPose():
+    global J123_x_down, J123_x_up
+    j0, j4, j5 = [ 0, 0, 0]
+
+    print("start")
+
+    J123_x_down = []
+    J123_x_up   = []
+
+    for is_down in [ True, False]:
+
+        if is_down:
+            J123_x = J123_x_down
+            file_name = 'J123-x-down.csv'
+            target_z = 10
+
+        else:
+            J123_x = J123_x_up
+            file_name = 'J123-x-up.csv'
+            target_z = 40
+            
+        with open(file_name, 'w') as f:
+            f.write('J1,J23,x,diff\n')
+
+            min_deg1 = None
+
+            for deg23 in np.linspace(0, 90, 90 * 5):
+                j23 = radian(deg23)
+                
+                min_diff = 1000
+                min_x = 0
+
+                if min_deg1 is None:
+                    deg1_list = np.linspace(-90, 0, 90 * 5)
+                else:
+                    deg1_list = np.linspace(min_deg1 - 1, min_deg1 + 1, 10)
+
+                for deg1 in deg1_list:
+                    j1 = radian(deg1)
+                    rads = [ j0, j1, j23, j23, j4, j5 ]
+
+                    x, y, z, _, _ = calc(rads).tolist()
+
+                    diff = abs(z - target_z)
+                    if diff < min_diff:
+                        min_diff = diff
+                        min_deg1 = deg1
+                        min_x    = x
+
+                    # elif min_diff < 1:
+                    #     break
+
+                if min_diff < 1:
+                    J123_x.append([min_deg1, deg23, min_x])
+                    f.write('%.1f,%.1f,%.1f,%.1f\n' % (min_deg1, deg23, min_x, min_diff))
+    print("end")
+
+naturalPose()
+
+def readNaturalPose():
+    df = pd.read_csv('J123-x.csv')
+
 loadParams()
 
 if useSerial:
-    ser = serial.Serial('COM5', 115200, timeout=1, write_timeout=1)
+    ser = serial.Serial('COM3', 115200, timeout=1, write_timeout=1)
 
 
     # while True:
@@ -519,13 +615,22 @@ while True:
         # 目標ポーズ
         pose = getPose()
 
-        # 逆運動学
-        rads = IK(pose)
-        if rads is None:
-            continue
+        x, y, z, phi, theta = pose
+        rads_down = IK2(x, y, True)
+        rads_up   = IK2(x, y, False)
 
-        degs = [ degree(x) for x in rads ]
-        moving = moveAllJoints(degs)
+        if rads_down is None or rads_up is None:
+            continue
+        
+
+        degs_down = [ degree(rad) for rad in rads_down ]
+        degs_up   = [ degree(rad) for rad in rads_up ]
+
+        moving = moveAllJoints([degs_up, degs_down])
+
+        # 逆運動学
+        # rads = IK(pose)
+        # moving = moveAllJoints([degs])
         
     elif event == "Stop":
         moving = None
@@ -546,11 +651,11 @@ while True:
         
     elif event == "Reset":
         degs = [0] * nax
-        moving = moveAllJoints(degs)
+        moving = moveAllJoints([degs])
         
     elif event == "Ready":
         degs = [ 0, -60, 66, 70, 0, 0  ]
-        moving = moveAllJoints(degs)
+        moving = moveAllJoints([degs])
         
     elif event == sg.WIN_CLOSED or event == 'Cancel': # if user closes window or clicks cancel
         break
