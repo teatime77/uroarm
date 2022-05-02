@@ -1,9 +1,9 @@
 import time
 import math
 import numpy as np
-import pandas as pd
 import PySimpleGUI as sg
 import json
+
 
 try:
     import Adafruit_PCA9685
@@ -307,7 +307,7 @@ def IK2(x, y, is_down):
 
     ts[3] = ts[2]
 
-    ts[4] = Angles[4]
+    ts[4] = ts[0]
 
     ts[5] = Angles[5]
 
@@ -540,9 +540,6 @@ def naturalPose():
     print("end")
 
 naturalPose()
-
-def readNaturalPose():
-    df = pd.read_csv('J123-x.csv')
 
 loadParams()
 
