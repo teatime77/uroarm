@@ -3,7 +3,9 @@ import math
 import numpy as np
 import PySimpleGUI as sg
 import json
-
+from sklearn.linear_model import LinearRegression
+from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY
+from util import getGlb
 
 try:
     import Adafruit_PCA9685
@@ -183,6 +185,66 @@ def moveAllJoints(dsts):
             yield
 
         print("move end")
+
+
+def Calibrate():
+    cam_xy = []
+    arm_x = []
+    arm_y = []
+
+    for x in [150, 200, 250, 300]:
+        for y in [-50, 0, 50]:
+            print(f'start move x:{x} y:{y}')
+            dst_rad = IK2(x, y, True)
+
+            if dst_rad is None:
+                print(f'skip move x:{x} y:{y}')
+                continue
+            
+            dst_deg = [degree(rad) for rad in dst_rad]
+            src_deg = [degree(rad) for rad in Angles]
+
+            cnt = 30
+            for i in range(cnt):
+                
+                r = float(i + 1) / float(cnt)
+
+                for j in range(nax):
+                    deg = (1.0 - r) * src_deg[j] + r * dst_deg[j]
+                    setAngle(jKeys[j], deg)
+
+                # showJoints(Angles)
+
+                yield
+
+            print("move end")
+            start_time = time.time()
+            while time.time() - start_time < 4:
+                yield
+            print(f'hand eye x:{x} y:{y} cx:{camX()} cy:{camY()}')
+
+            cam_xy.append([ camX(), camY() ])
+            arm_x.append(x)
+            arm_y.append(y)
+
+    X = np.array(cam_xy)
+    arm_x = np.array(arm_x)
+    arm_y = np.array(arm_y)
+
+    glb = getGlb()
+    glb.regX = LinearRegression().fit(X, arm_x)
+
+    glb.regY = LinearRegression().fit(X, arm_y)
+
+    print('reg x', glb.regX.coef_)
+    print('reg y', glb.regY.coef_)
+
+    prd_x = glb.regX.predict(X)
+    prd_y = glb.regY.predict(X)
+    print(f'X:{X.shape} arm-x:{arm_x.shape} arm-y:{arm_y.shape} prd-x:{prd_x.shape} prd-y:{prd_y.shape}')
+
+    for i in range(X.shape[0]):
+        print(f'cam:{X[i, 0]} {X[i, 1]} arm:{arm_x[i]} {arm_y[i]} prd:{int(prd_x[i]) - arm_x[i]} {int(prd_y[i]) - arm_y[i]}')
 
 def moveIK():
     # 初期ポーズ
@@ -539,9 +601,64 @@ def naturalPose():
                     f.write('%.1f,%.1f,%.1f,%.1f\n' % (min_deg1, deg23, min_x, min_diff))
     print("end")
 
+H_lo =  80
+H_hi = 140
+S_lo = 170
+S_hi = 255
+V_lo = 180
+V_hi = 255
+
+def spin(label, key, val, min_val, max_val):
+    return [ 
+        sg.Text(label),
+        sg.Spin(list(range(min_val, max_val + 1)), initial_value=val, size=(5, 1), key=key, enable_events=True )
+    ]
+
+def openHand():
+    setAngle('J6', -25)
+
+def closeHand():
+    setAngle('J6',  20)
+
+def grabWork(x, y):
+    x += 20
+    openHand()
+
+    dst_rad = IK2(x, y, True)
+
+    if dst_rad is None:
+        print(f'skip move x:{x} y:{y}')
+        return
+    
+    dst_deg = [degree(rad) for rad in dst_rad]
+    src_deg = [degree(rad) for rad in Angles]
+
+    cnt = 30
+    for i in range(cnt):
+        
+        r = float(i + 1) / float(cnt)
+
+        for j in range(nax):
+            deg = (1.0 - r) * src_deg[j] + r * dst_deg[j]
+            setAngle(jKeys[j], deg)
+
+        # showJoints(Angles)
+
+        yield
+
+    closeHand()
+    
+    start_time = time.time()
+    while time.time() - start_time < 4:
+        yield
+
+    setAngle('J2', -60)
+
 naturalPose()
 
 loadParams()
+
+initCamera()
 
 if useSerial:
     ser = serial.Serial('COM3', 115200, timeout=1, write_timeout=1)
@@ -562,6 +679,11 @@ sg.theme('DarkAmber')   # SystemDefault Add a touch of color
 layout = [
     [
     sg.Column([
+        spin('H lo', '-Hlo-', H_lo, 0, 180) + spin('H hi', '-Hhi-', H_hi, 0, 180),
+        spin('S lo', '-Slo-', S_lo, 0, 255) + spin('S hi', '-Shi-', S_hi, 0, 255),
+        spin('V lo', '-Vlo-', V_lo, 0, 255) + spin('V hi', '-Vhi-', V_hi, 0, 255)
+    ]),
+    sg.Column([
         [ sg.Text('J1'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J1') ],
         [ sg.Text('J2'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J2') ],
         [ sg.Text('J3'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J3') ],
@@ -577,7 +699,7 @@ layout = [
         [ sg.Text('R2'), sg.Slider(range=(0,120), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='R2', resolution=1) ]
     ])
     ],
-    [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Cancel')]
+    [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Cancel')]
 ]
 
 # Create the Window
@@ -585,7 +707,7 @@ window = sg.Window('Robot Control', layout)
 # Event Loop to process "events" and get the "values" of the inputs
 while True:
     if moving is None:
-        event, values = window.read()
+        event, values = window.read(timeout=20)
     else:
         event, values = window.read(timeout=1)
         try:
@@ -619,7 +741,6 @@ while True:
         if rads_down is None or rads_up is None:
             continue
         
-
         degs_down = [ degree(rad) for rad in rads_down ]
         degs_up   = [ degree(rad) for rad in rads_up ]
 
@@ -628,7 +749,10 @@ while True:
         # 逆運動学
         # rads = IK(pose)
         # moving = moveAllJoints([degs])
-        
+
+    elif event == "Calibrate":
+        moving = Calibrate()        
+
     elif event == "Stop":
         moving = None
         stopMoving = True
@@ -648,14 +772,28 @@ while True:
         
     elif event == "Reset":
         degs = [0] * nax
+        degs[5] = degree(Angles[5])
         moving = moveAllJoints([degs])
         
     elif event == "Ready":
         degs = [ 0, -60, 66, 70, 0, 0  ]
         moving = moveAllJoints([degs])
-        
+
+    elif event == "Send":
+        sendImage(values)
+
     elif event == sg.WIN_CLOSED or event == 'Cancel': # if user closes window or clicks cancel
+        closeCamera()
         break
+
+    else:
+        readCamera(values)
+
+        glb = getGlb()
+        if glb.prdX is not None:
+            moving = grabWork(glb.prdX, glb.prdY)
+
+            glb.prdX, glb.prdY = (None, None)
     
 window.close()
 
