@@ -6,6 +6,7 @@ import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY
 from util import getGlb
+from s_curve import SCurve
 
 try:
     import Adafruit_PCA9685
@@ -176,16 +177,22 @@ def moveAllJoints(dsts):
     for dst in dsts:
         src = [degree(x) for x in Angles]
 
-        start_time = time.time()
-        for i in range(moveCnt):
+        t_all = 1
+        scs = [ SCurve(t_all, dst[j] - src[j]) for j in range(nax) ]
 
-            r = float(i + 1) / float(moveCnt)
+        start_time = time.time()
+        while True:            
+
+            t = time.time() - start_time
+            if t_all <= t:
+                break
 
             for j in range(nax):
-                deg = (1.0 - r) * src[j] + r * dst[j]
+                sc = scs[j]
+                
+                deg = src[j] + sc.dist(t)
                 setAngle(jKeys[j], deg)
 
-            # showJoints(Angles)
             yield
 
         print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
