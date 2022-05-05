@@ -32,6 +32,7 @@ moving = None
 stopMoving = False
 Angles = [0] * nax
 dstAngles = [0] * nax
+moveCnt = 30
 
 zs = arr([ 0.5, 11.0, 17.5, 23.5, 28.8 ]) - 0.5
 links = [ zs[i+1] - zs[i] for i in range(4) ]
@@ -43,7 +44,10 @@ posKeys = [ "X", "Y", "Z", "R1", "R2" ]
 
 
 def degree(t):
-    return t * 180.0 / math.pi
+    if type(t) is list:
+        return [ x * 180.0 / math.pi for x in t ]
+    else:
+        return t * 180.0 / math.pi
 
 def radian(d):
     return d * math.pi / 180.0
@@ -78,7 +82,7 @@ def saveParams():
     print("saved:" + json.dumps(params))
 
 def getPose():
-    dst = [ values[k] for k in posKeys ]
+    dst = [ float(values[k]) for k in posKeys ]
     dst[3] = radian(dst[3])
     dst[4] = radian(dst[4])
 
@@ -158,7 +162,7 @@ def jointKey(i):
 def showJoints(ts):
     for i, j in enumerate(ts):
         key = jointKey(i)
-        window[key].Update(degree(j))
+        window[key].Update(int(round(degree(j))))
 
 def setOffsets():
     for key in jKeys:
@@ -172,10 +176,10 @@ def moveAllJoints(dsts):
     for dst in dsts:
         src = [degree(x) for x in Angles]
 
-        cnt = 30
-        for i in range(cnt):
+        start_time = time.time()
+        for i in range(moveCnt):
 
-            r = float(i + 1) / float(cnt)
+            r = float(i + 1) / float(moveCnt)
 
             for j in range(nax):
                 deg = (1.0 - r) * src[j] + r * dst[j]
@@ -184,7 +188,7 @@ def moveAllJoints(dsts):
             # showJoints(Angles)
             yield
 
-        print("move end")
+        print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
 
 def Calibrate():
@@ -471,10 +475,10 @@ def Jacob(ts, pos):
 
 def showPos(pos):
     for k, p in zip(["X", "Y", "Z"], pos[:3]):
-        window[k].Update(p)
+        window[k].Update(int(round(p)))
         
     for k, p in zip(["R1", "R2"], pos[3:]):
-        window[k].Update(degree(p))
+        window[k].Update(int(round(degree(p))))
         
 def move(dst):
     global Angles
@@ -504,7 +508,6 @@ def move(dst):
 
         pos = calc(ts)
         showPos(pos)
-        print("%d %s" % (idx, strPos(pos)))
         
         if idx % 10 == 0:
             yield
@@ -608,10 +611,11 @@ S_hi = 255
 V_lo = 180
 V_hi = 255
 
-def spin(label, key, val, min_val, max_val):
+def spin(label, key, val, min_val, max_val, bind_return_key = True):
+
     return [ 
         sg.Text(label),
-        sg.Spin(list(range(min_val, max_val + 1)), initial_value=val, size=(5, 1), key=key, enable_events=True )
+        sg.Spin(list(range(min_val, max_val + 1)), initial_value=val, size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
     ]
 
 def openHand():
@@ -679,24 +683,24 @@ sg.theme('DarkAmber')   # SystemDefault Add a touch of color
 layout = [
     [
     sg.Column([
-        spin('H lo', '-Hlo-', H_lo, 0, 180) + spin('H hi', '-Hhi-', H_hi, 0, 180),
-        spin('S lo', '-Slo-', S_lo, 0, 255) + spin('S hi', '-Shi-', S_hi, 0, 255),
-        spin('V lo', '-Vlo-', V_lo, 0, 255) + spin('V hi', '-Vhi-', V_hi, 0, 255)
+        spin('H lo', '-Hlo-', H_lo, 0, 180, False) + spin('H hi', '-Hhi-', H_hi, 0, 180, False),
+        spin('S lo', '-Slo-', S_lo, 0, 255, False) + spin('S hi', '-Shi-', S_hi, 0, 255, False),
+        spin('V lo', '-Vlo-', V_lo, 0, 255, False) + spin('V hi', '-Vhi-', V_hi, 0, 255, False)
     ]),
     sg.Column([
-        [ sg.Text('J1'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J1') ],
-        [ sg.Text('J2'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J2') ],
-        [ sg.Text('J3'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J3') ],
-        [ sg.Text('J4'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J4') ],
-        [ sg.Text('J5'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J5') ],
-        [ sg.Text('J6'), sg.Slider(range=(-120,130), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='J6') ],
+        spin('J1', 'J1', 0, -120, 130),
+        spin('J2', 'J2', 0, -120, 130),
+        spin('J3', 'J3', 0, -120, 130),
+        spin('J4', 'J4', 0, -120, 130),
+        spin('J5', 'J5', 0, -120, 130),
+        spin('J6', 'J6', 0, -120, 130)
     ]),
     sg.Column([
-        [ sg.Text('X'), sg.Slider(range=(0,400), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='X') ],
-        [ sg.Text('Y'), sg.Slider(range=(-300,300), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='Y') ],
-        [ sg.Text('Z'), sg.Slider(range=(0,150), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='Z') ],
-        [ sg.Text('R1'), sg.Slider(range=(-90,90), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='R1', resolution=1) ],
-        [ sg.Text('R2'), sg.Slider(range=(0,120), default_value=0, size=(40,15), orientation='horizontal', change_submits=True, key='R2', resolution=1) ]
+        spin('X', 'X' , 0,    0, 400 ),
+        spin('Y', 'Y' , 0, -300, 300 ),
+        spin('Z', 'Z' , 0,    0, 150 ),
+        spin('R1', 'R1', 0, -90,  90 ),
+        spin('R2', 'R2', 0,   0, 120 )
     ])
     ],
     [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Cancel')]
@@ -707,7 +711,7 @@ window = sg.Window('Robot Control', layout)
 # Event Loop to process "events" and get the "values" of the inputs
 while True:
     if moving is None:
-        event, values = window.read(timeout=20)
+        event, values = window.read(timeout=1)
     else:
         event, values = window.read(timeout=1)
         try:
@@ -724,13 +728,10 @@ while True:
             print("stop moving")
         
     if event in jKeys:
-        deg = values[event]
-        setAngle(event, deg)
+        degs = [ float(values[key]) for key in jKeys ]
+        moving = moveAllJoints([ degs ])
         
-        # pos = calc(Angles)
-        # showPos(pos)
-        
-    elif event == "Move":
+    elif event == "Move" or event in posKeys:
         # 目標ポーズ
         pose = getPose()
 
@@ -787,13 +788,14 @@ while True:
         break
 
     else:
-        readCamera(values)
+        if moving is None:
+            readCamera(values)
 
-        glb = getGlb()
-        if glb.prdX is not None:
-            moving = grabWork(glb.prdX, glb.prdY)
+            glb = getGlb()
+            if glb.prdX is not None:
+                moving = grabWork(glb.prdX, glb.prdY)
 
-            glb.prdX, glb.prdY = (None, None)
+                glb.prdX, glb.prdY = (None, None)
     
 window.close()
 
