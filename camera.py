@@ -1,6 +1,8 @@
 # 【python/OpenCV】カメラ映像をキャプチャするプログラム
 # https://rikoubou.hatenablog.com/entry/2019/03/07/153430
 
+import socket
+import pickle
 import cv2
 import time
 import json
@@ -145,7 +147,7 @@ def readCamera(values):
 
     if ann is not None:
         showAnnotations(frame)
-        ann = None
+        # ann = None
 
     cv2.imshow("camera", frame)
 
@@ -157,7 +159,50 @@ def camX():
 def camY():
     return CamY
 
+sock = None
+
+def initSock():
+    global sock
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    print('connecting ...')
+    sock.connect((socket.gethostname(), 1235))
+    print('connect OK')
+
 def sendImage(values):
+    global wait_infer, ann
+
+    # wait_infer = True
+    ann = None
+
+    frame = getCameraFrame()
+
+    if sock is None:
+        initSock()
+
+    msg = pickle.dumps(frame)
+
+    print('send', len(msg))
+    sock.send(msg)
+    print('send OK')
+
+    print('rcv ...')
+    full_msg = sock.recv(1024)
+
+    obj = pickle.loads(full_msg)
+
+    cx = obj['cx']
+    cy = obj['cy']
+
+    print('rcv', obj, cx, cy)
+
+    ann = {
+        'bbox': [ cx, cy ]
+    }
+
+
+def sendImageOLD(values):
     global wait_infer, ann
 
     wait_infer = True
@@ -212,8 +257,12 @@ def getDetections():
     print('%s %d' % (img_inf['file_name'], 100 * max_score))
 
 def showAnnotations(frame):
-    
-    if len(ann['bbox']) == 4:
+    if len(ann['bbox']) == 2:
+        cx, cy = ann['bbox']
+
+        cv2.circle(frame, (int(cx), int(cy)), 10, (255,255,255), -1)
+
+    elif len(ann['bbox']) == 4:
         x, y, w, h = [ int(i) for i in ann['bbox']]
         frame = cv2.rectangle(frame,(x,y),(x + w,y + h),(0,255,0),3)
 
