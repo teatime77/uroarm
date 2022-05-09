@@ -141,9 +141,6 @@ def readCamera(values):
         CamY = 0.5 * (by + ry)
     # print(bx, by, rx, ry, CamX, CamY)
 
-    if wait_infer:
-        getDetections()
-
     if ann is not None:
         showAnnotations(frame)
         # ann = None
@@ -200,60 +197,18 @@ def sendImage(values):
         'bbox': [ cx, cy ]
     }
 
+    return cx, cy
 
-def sendImageOLD(values):
-    global wait_infer, ann
+def Eye2Hand(eye_x, eye_y):
+    glb = getGlb()
 
-    wait_infer = True
-    ann = None
+    prd_x = glb.regX.predict([[ eye_x, eye_y ]])
+    prd_y = glb.regY.predict([[ eye_x, eye_y ]])
 
-    frame = getCameraFrame()
+    hand_x = prd_x[0]
+    hand_y = prd_y[0]
 
-    date = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_name = date + ".png"
-
-    src_path  = f'./img/{file_name}'
-    dst_path = f'{colab_dir}/img/{file_name}'
-
-    cv2.imwrite(src_path, frame) # ファイル保存
-
-    shutil.copy2(src_path, dst_path)
-    print(src_path, '=>', dst_path)
-
-    pathlib.Path(f'{colab_dir}/start').touch()
-    
-    print('start')
-
-def getDetections():
-    global wait_infer, ann
-
-    # 推論が完了するのを待つ。
-    end_file = f'{colab_dir}/end'
-
-    if not os.path.exists(end_file):
-        return
-
-    os.remove(end_file)
-
-    clearImage()
-
-    wait_infer = False
-
-    # 推論の結果を受け取る。
-    shutil.copy2(f'{colab_dir}/{detections_json}', detections_json)
-
-    with open(detections_json) as f:
-        df = json.load(f)
-
-    assert len(df['images']) == 1
-
-    img_inf = df['images'][0]
-
-    anns_id = [ x for x in df['annotations'] if x['image_id'] == img_inf['id'] ]
-    max_score = max([ x['score'] for x in anns_id ])   
-
-    ann = [ x for x in anns_id if x['score'] == max_score ][0]
-    print('%s %d' % (img_inf['file_name'], 100 * max_score))
+    return hand_x, hand_y
 
 def showAnnotations(frame):
     if len(ann['bbox']) == 2:
@@ -298,15 +253,6 @@ def showAnnotations(frame):
             glb.prdY = prd_y[0]
 
             print('infer:%.1f %.1f prd:%.1f %.1f ' % (glb.inferX, glb.inferY, glb.prdX, glb.prdY))
-
-def clearImage():
-    for img_path in glob.glob(f'{colab_dir}/img/*.png'):
-        os.remove(img_path)
-        print('rm', img_path)
-
-    for img_path in glob.glob(f'./img/*.png'):
-        os.remove(img_path)
-        print('rm', img_path)
 
 
 def closeCamera():

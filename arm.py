@@ -4,7 +4,7 @@ import numpy as np
 import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
-from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY
+from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from util import getGlb
 from s_curve import SCurve
 
@@ -366,6 +366,7 @@ def IK2(x, y, is_down):
     min_x = min(xs)
     max_x = max(xs)
     if r < min_x or max_x < r:
+        print('ik2 error %d %d %d' % (min_x, r, max_x))
         return None
 
     diff_x = [ abs(x_ - r) for x_ in xs ]
@@ -645,19 +646,13 @@ def grabWork(x, y):
         return
     
     dst_deg = [degree(rad) for rad in dst_rad]
-    src_deg = [degree(rad) for rad in Angles]
 
-    cnt = 30
-    for i in range(cnt):
-        
-        r = float(i + 1) / float(cnt)
-
-        for j in range(nax):
-            deg = (1.0 - r) * src_deg[j] + r * dst_deg[j]
-            setAngle(jKeys[j], deg)
-
-        # showJoints(Angles)
-
+    mv = moveAllJoints([dst_deg])
+    while True:                
+        try:
+            mv.__next__()
+        except StopIteration:
+            break
         yield
 
     closeHand()
@@ -792,11 +787,13 @@ if __name__ == '__main__':
             moving = moveAllJoints([degs])
             
         elif event == "Ready":
-            degs = [ 0, -60, 70, 70, 0, 0  ]
+            degs = [ 0, -80, 80, 80, 0, 0  ]
             moving = moveAllJoints([degs])
 
         elif event == "Send":
-            sendImage(values)
+            eye_x, eye_y = sendImage(values)
+            hand_x, hand_y = Eye2Hand(eye_x, eye_y)
+            moving = grabWork(hand_x, hand_y)
 
         elif event == sg.WIN_CLOSED or event == 'Close':
             params['degrees'] = ['%.1f' % d for d in degree(Angles) ]
@@ -810,12 +807,6 @@ if __name__ == '__main__':
         else:
             if not isMoving:
                 readCamera(values)
-
-                glb = getGlb()
-                if glb.prdX is not None:
-                    moving = grabWork(glb.prdX, glb.prdY)
-
-                    glb.prdX, glb.prdY = (None, None)
         
     window.close()
 
