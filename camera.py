@@ -102,7 +102,6 @@ def showMark(values, frame, h_lo, h_hi):
 
             # print(cv2.arcLength(cont,True))
 
-            # cv2.circle(frame, (cx, cy), 5, (0, 0, 255), thickness=-1)
             cv2.line(frame, (cx, cy - 10), (cx, cy + 10), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
             cv2.line(frame, (cx - 10, cy), (cx + 10, cy), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
 

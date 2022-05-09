@@ -34,6 +34,7 @@ stopMoving = False
 Angles = [0] * nax
 dstAngles = [0] * nax
 moveCnt = 30
+isMoving = False
 
 zs = arr([ 0.5, 11.0, 17.5, 23.5, 28.8 ]) - 0.5
 links = [ zs[i+1] - zs[i] for i in range(4) ]
@@ -51,10 +52,13 @@ def degree(t):
         return t * 180.0 / math.pi
 
 def radian(d):
-    return d * math.pi / 180.0
+    if type(d) is list:
+        return [ x * math.pi / 180.0 for x in d ]
+    else:
+        return d * math.pi / 180.0
 
 def loadParams():
-    global offsets
+    global offsets, params, Angles
 
     with open('arm.json', 'r') as f:
         params = json.load(f)
@@ -66,6 +70,8 @@ def loadParams():
 
     print("offsets", offsets)
 
+    degrees = [ float(s) for s in params['degrees'] ]
+    Angles  = radian(degrees)
 
 def saveParams():
     obj = {}
@@ -73,9 +79,7 @@ def saveParams():
         obj[key] = "%.1f" % offsets[key]
 
 
-    params = {
-        'offsets' : obj
-    }
+    params['offsets'] = obj
 
     with open('arm.json', 'w') as f:
         json.dump(params, f)
@@ -174,6 +178,9 @@ def setOffsets():
     saveParams()
 
 def moveAllJoints(dsts):
+    global isMoving
+
+    isMoving = True
     for dst in dsts:
         src = [degree(x) for x in Angles]
 
@@ -197,6 +204,8 @@ def moveAllJoints(dsts):
 
         print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
+    isMoving = False
+
 
 def Calibrate():
     cam_xy = []
@@ -213,20 +222,14 @@ def Calibrate():
                 continue
             
             dst_deg = [degree(rad) for rad in dst_rad]
-            src_deg = [degree(rad) for rad in Angles]
+            mv = moveAllJoints([dst_deg])
+            while True:                
+                try:
+                    mv.__next__()
+                    yield
+                except StopIteration:
+                    break
 
-            cnt = 30
-            for i in range(cnt):
-                
-                r = float(i + 1) / float(cnt)
-
-                for j in range(nax):
-                    deg = (1.0 - r) * src_deg[j] + r * dst_deg[j]
-                    setAngle(jKeys[j], deg)
-
-                # showJoints(Angles)
-
-                yield
 
             print("move end")
             start_time = time.time()
@@ -665,144 +668,154 @@ def grabWork(x, y):
 
     setAngle('J2', -60)
 
-naturalPose()
+if __name__ == '__main__':
 
-loadParams()
+    naturalPose()
 
-initCamera()
+    loadParams()
 
-if useSerial:
-    ser = serial.Serial('COM3', 115200, timeout=1, write_timeout=1)
+    initCamera()
+
+    if useSerial:
+        ser = serial.Serial('COM3', 115200, timeout=1, write_timeout=1)
 
 
-    # while True:
-        
-    #     print(ch)
-    #     for c in ch:
-    #         print(c, hex(ord(c)))
-
-else:
-    pwm = Adafruit_PCA9685.PCA9685(address=0x40)
-    pwm.set_pwm_freq(60)
-
-sg.theme('DarkAmber')   # SystemDefault Add a touch of color
-# All the stuff inside your window.
-layout = [
-    [
-    sg.Column([
-        spin('H lo', '-Hlo-', H_lo, 0, 180, False) + spin('H hi', '-Hhi-', H_hi, 0, 180, False),
-        spin('S lo', '-Slo-', S_lo, 0, 255, False) + spin('S hi', '-Shi-', S_hi, 0, 255, False),
-        spin('V lo', '-Vlo-', V_lo, 0, 255, False) + spin('V hi', '-Vhi-', V_hi, 0, 255, False)
-    ]),
-    sg.Column([
-        spin('J1', 'J1', 0, -120, 130),
-        spin('J2', 'J2', 0, -120, 130),
-        spin('J3', 'J3', 0, -120, 130),
-        spin('J4', 'J4', 0, -120, 130),
-        spin('J5', 'J5', 0, -120, 130),
-        spin('J6', 'J6', 0, -120, 130)
-    ]),
-    sg.Column([
-        spin('X', 'X' , 0,    0, 400 ),
-        spin('Y', 'Y' , 0, -300, 300 ),
-        spin('Z', 'Z' , 0,    0, 150 ),
-        spin('R1', 'R1', 0, -90,  90 ),
-        spin('R2', 'R2', 0,   0, 120 )
-    ])
-    ],
-    [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Cancel')]
-]
-
-# Create the Window
-window = sg.Window('Robot Control', layout)
-# Event Loop to process "events" and get the "values" of the inputs
-while True:
-    if moving is None:
-        event, values = window.read(timeout=1)
-    else:
-        event, values = window.read(timeout=1)
-        try:
-            moving.__next__()
-        except StopIteration:
-            moving = None
-            stopMoving = False
-
-            showJoints(Angles)
-
-            pos = calc(Angles)
-            showPos(pos)
-
-            print("stop moving")
-        
-    if event in jKeys:
-        degs = [ float(values[key]) for key in jKeys ]
-        moving = moveAllJoints([ degs ])
-        
-    elif event == "Move" or event in posKeys:
-        # 目標ポーズ
-        pose = getPose()
-
-        x, y, z, phi, theta = pose
-        rads_down = IK2(x, y, True)
-        rads_up   = IK2(x, y, False)
-
-        if rads_down is None or rads_up is None:
-            continue
-        
-        degs_down = [ degree(rad) for rad in rads_down ]
-        degs_up   = [ degree(rad) for rad in rads_up ]
-
-        moving = moveAllJoints([degs_up, degs_down])
-
-        # 逆運動学
-        # rads = IK(pose)
-        # moving = moveAllJoints([degs])
-
-    elif event == "Calibrate":
-        moving = Calibrate()        
-
-    elif event == "Stop":
-        moving = None
-        stopMoving = True
-        
-    elif event == 'Home':
-        setOffsets()
+        # while True:
             
-    elif event == "Test":
-        test()
-        src = calc(Angles)
-        dst = calc(Angles + 0.125 * math.pi)
-
-        print("src", src)
-        print("dst", dst)
-
-        move(dst)
-        
-    elif event == "Reset":
-        degs = [0] * nax
-        degs[5] = degree(Angles[5])
-        moving = moveAllJoints([degs])
-        
-    elif event == "Ready":
-        degs = [ 0, -60, 66, 70, 0, 0  ]
-        moving = moveAllJoints([degs])
-
-    elif event == "Send":
-        sendImage(values)
-
-    elif event == sg.WIN_CLOSED or event == 'Cancel': # if user closes window or clicks cancel
-        closeCamera()
-        break
+        #     print(ch)
+        #     for c in ch:
+        #         print(c, hex(ord(c)))
 
     else:
+        pwm = Adafruit_PCA9685.PCA9685(address=0x40)
+        pwm.set_pwm_freq(60)
+
+    degrees = degree(Angles)
+    degrees = [ int(round(x)) for x in degrees ]
+
+    sg.theme('DarkAmber')   # SystemDefault Add a touch of color
+    # All the stuff inside your window.
+    layout = [
+        [
+        sg.Column([
+            spin('H lo', '-Hlo-', H_lo, 0, 180, False) + spin('H hi', '-Hhi-', H_hi, 0, 180, False),
+            spin('S lo', '-Slo-', S_lo, 0, 255, False) + spin('S hi', '-Shi-', S_hi, 0, 255, False),
+            spin('V lo', '-Vlo-', V_lo, 0, 255, False) + spin('V hi', '-Vhi-', V_hi, 0, 255, False)
+        ]),
+        sg.Column([
+            spin('J1', 'J1', degrees[0], -120, 130),
+            spin('J2', 'J2', degrees[1], -120, 130),
+            spin('J3', 'J3', degrees[2], -120, 130),
+            spin('J4', 'J4', degrees[3], -120, 130),
+            spin('J5', 'J5', degrees[4], -120, 130),
+            spin('J6', 'J6', degrees[5], -120, 130)
+        ]),
+        sg.Column([
+            spin('X', 'X' , 0,    0, 400 ),
+            spin('Y', 'Y' , 0, -300, 300 ),
+            spin('Z', 'Z' , 0,    0, 150 ),
+            spin('R1', 'R1', 0, -90,  90 ),
+            spin('R2', 'R2', 0,   0, 120 )
+        ])
+        ],
+        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
+    ]
+
+    # Create the Window
+    window = sg.Window('Robot Control', layout)
+    # Event Loop to process "events" and get the "values" of the inputs
+    while True:
         if moving is None:
-            readCamera(values)
+            event, values = window.read(timeout=1)
+        else:
+            event, values = window.read(timeout=1)
+            try:
+                moving.__next__()
+            except StopIteration:
+                moving = None
+                stopMoving = False
 
-            glb = getGlb()
-            if glb.prdX is not None:
-                moving = grabWork(glb.prdX, glb.prdY)
+                showJoints(Angles)
 
-                glb.prdX, glb.prdY = (None, None)
-    
-window.close()
+                pos = calc(Angles)
+                showPos(pos)
+
+                print("stop moving")
+            
+        if event in jKeys:
+            degs = [ float(values[key]) for key in jKeys ]
+            moving = moveAllJoints([ degs ])
+            
+        elif event == "Move" or event in posKeys:
+            # 目標ポーズ
+            pose = getPose()
+
+            x, y, z, phi, theta = pose
+            rads_down = IK2(x, y, True)
+            rads_up   = IK2(x, y, False)
+
+            if rads_down is None or rads_up is None:
+                continue
+            
+            degs_down = [ degree(rad) for rad in rads_down ]
+            degs_up   = [ degree(rad) for rad in rads_up ]
+
+            moving = moveAllJoints([degs_up, degs_down])
+
+            # 逆運動学
+            # rads = IK(pose)
+            # moving = moveAllJoints([degs])
+
+        elif event == "Calibrate":
+            moving = Calibrate()        
+
+        elif event == "Stop":
+            moving = None
+            stopMoving = True
+            
+        elif event == 'Home':
+            setOffsets()
+                
+        elif event == "Test":
+            test()
+            src = calc(Angles)
+            dst = calc(Angles + 0.125 * math.pi)
+
+            print("src", src)
+            print("dst", dst)
+
+            move(dst)
+            
+        elif event == "Reset":
+            degs = [0] * nax
+            degs[5] = degree(Angles[5])
+            moving = moveAllJoints([degs])
+            
+        elif event == "Ready":
+            degs = [ 0, -60, 70, 70, 0, 0  ]
+            moving = moveAllJoints([degs])
+
+        elif event == "Send":
+            sendImage(values)
+
+        elif event == sg.WIN_CLOSED or event == 'Close':
+            params['degrees'] = ['%.1f' % d for d in degree(Angles) ]
+
+            with open('arm.json', 'w') as f:
+                json.dump(params, f)
+
+            closeCamera()
+            break
+
+        else:
+            if not isMoving:
+                readCamera(values)
+
+                glb = getGlb()
+                if glb.prdX is not None:
+                    moving = grabWork(glb.prdX, glb.prdY)
+
+                    glb.prdX, glb.prdY = (None, None)
+        
+    window.close()
 
