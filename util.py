@@ -1,5 +1,7 @@
 import json
 
+t_all = 1
+
 class Glb:
     def __init__(self):
         self.regX = None

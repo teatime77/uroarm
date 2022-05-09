@@ -5,7 +5,7 @@ import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import getGlb, writeParams
+from util import getGlb, writeParams, t_all
 from s_curve import SCurve
 
 try:
@@ -191,12 +191,10 @@ def moveAllJoints(dsts):
     for dst in dsts:
         src = [degree(x) for x in Angles]
 
-        t_all = 1
-        scs = [ SCurve(t_all, dst[j] - src[j]) for j in range(nax) ]
+        scs = [ SCurve(dst[j] - src[j]) for j in range(nax) ]
 
         start_time = time.time()
-        while True:            
-
+        while True:
             t = time.time() - start_time
             if t_all <= t:
                 break
@@ -212,6 +210,37 @@ def moveAllJoints(dsts):
         print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
     isMoving = False
+
+def waitMoveAllJoints(dsts):
+    global isMoving
+
+    isMoving = True
+
+    mv = moveAllJoints(dsts)
+    while True:                
+        try:
+            mv.__next__()
+            yield True
+        except StopIteration:
+            isMoving = False
+            yield False
+
+def waitMoveJoint(jkey, dst_deg):
+    jidx = jKeys.index(jkey)
+    src_deg = degree(Angles[jidx])
+
+    sc = SCurve(dst_deg - src_deg)
+
+    start_time = time.time()
+    while True:
+        t = time.time() - start_time
+        if t_all <= t:
+            yield False
+            
+        deg = src_deg + sc.dist(t)
+        setAngle(jkey, deg)
+
+        yield True
 
 def fitRegression(eye_xy, hand_x, hand_y):
     X = np.array(eye_xy)
@@ -248,13 +277,9 @@ def Calibrate():
                 continue
             
             dst_deg = [degree(rad) for rad in dst_rad]
-            mv = moveAllJoints([dst_deg])
-            while True:                
-                try:
-                    mv.__next__()
-                    yield
-                except StopIteration:
-                    break
+            mv = waitMoveAllJoints([dst_deg])
+            while mv.__next__():
+                yield
 
 
             print("move end")
@@ -647,14 +672,25 @@ def spin(label, key, val, min_val, max_val, bind_return_key = True):
     ]
 
 def openHand():
-    setAngle('J6', -25)
+    mv = waitMoveJoint('J6', -25)
+    while mv.__next__():
+        yield True
+
+    yield False
 
 def closeHand():
-    setAngle('J6',  20)
+    mv = waitMoveJoint('J6', 20)
+    while mv.__next__():
+        yield True
+
+    yield False
 
 def grabWork(x, y):
     x += 20
-    openHand()
+
+    mv = openHand()
+    while mv.__next__():
+        yield True
 
     dst_rad = IK2(x, y, True)
 
@@ -664,21 +700,21 @@ def grabWork(x, y):
     
     dst_deg = [degree(rad) for rad in dst_rad]
 
-    mv = moveAllJoints([dst_deg])
-    while True:                
-        try:
-            mv.__next__()
-        except StopIteration:
-            break
+    mv = waitMoveAllJoints([dst_deg])
+    while mv.__next__():
         yield
 
-    closeHand()
+    mv = closeHand()
+    while mv.__next__():
+        yield True
     
     start_time = time.time()
-    while time.time() - start_time < 4:
+    while time.time() - start_time < 3:
         yield
 
-    setAngle('J2', -60)
+    mv = waitMoveJoint('J2', -60)
+    while mv.__next__():
+        yield True
 
 if __name__ == '__main__':
 
@@ -734,8 +770,11 @@ if __name__ == '__main__':
     ]
 
     # Create the Window
-    window = sg.Window('Robot Control', layout)
+    window = sg.Window('Robot Control', layout, finalize=True)
+
     # Event Loop to process "events" and get the "values" of the inputs
+
+    last_capture = time.time()
     while True:
         if moving is None:
             event, values = window.read(timeout=1)
@@ -822,7 +861,9 @@ if __name__ == '__main__':
 
         else:
             if not isMoving:
-                readCamera(values)
+                if 0.1 < time.time() - last_capture:
+                    last_capture = time.time()
+                    readCamera(values)
         
     window.close()
 

@@ -4,11 +4,12 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import itertools
+from util import t_all
 
 pi = math.pi
 
 class SCurve:
-    def __init__(self, t_all, S_all):
+    def __init__(self, S_all):
         t1 = t_all / 2.0
         self.t1 = t1
         self.S1 = S_all / 2.0
