@@ -28,6 +28,7 @@ def arr(v):
         return np.array(v, dtype=np.float32)
     
 nax = 6
+hand_idx = nax - 1
 poseDim = 5
 moving = None
 stopMoving = False
@@ -35,6 +36,9 @@ Angles = [0] * nax
 dstAngles = [0] * nax
 moveCnt = 30
 isMoving = False
+grab_cnt = 0
+Pos1 = [   0, -80, 80, 80,   0, 0  ]
+Pos2 = [ -90, -80, 80, 80, -90, 0  ]
 
 zs = arr([ 0.5, 11.0, 17.5, 23.5, 28.8 ]) - 0.5
 links = [ zs[i+1] - zs[i] for i in range(4) ]
@@ -242,6 +246,32 @@ def waitMoveJoint(jkey, dst_deg):
 
         yield True
 
+def waitPos(pos):
+    degs = list(pos)
+    degs[hand_idx] = degree(Angles[hand_idx])
+
+    mv = waitMoveAllJoints([degs])
+    while mv.__next__():
+        yield True
+
+    yield False
+
+def waitMoveXY(x, y):
+    rads_down = IK2(x, y, True)
+    # rads_up   = IK2(x, y, False)
+
+    if rads_down is None:
+        yield False
+    
+    degs_down = [ degree(rad) for rad in rads_down ]
+    # degs_up   = [ degree(rad) for rad in rads_up ]
+
+    mv = waitMoveAllJoints([degs_down])
+    while mv.__next__():
+        yield True
+
+    yield False
+
 def fitRegression(eye_xy, hand_x, hand_y):
     X = np.array(eye_xy)
     hand_x = np.array(hand_x)
@@ -280,7 +310,6 @@ def Calibrate():
             mv = waitMoveAllJoints([dst_deg])
             while mv.__next__():
                 yield
-
 
             print("move end")
             start_time = time.time()
@@ -686,7 +715,13 @@ def closeHand():
     yield False
 
 def grabWork(x, y):
-    x += 20
+    global grab_cnt
+
+    x += 10
+
+    mv = waitPos(Pos1)
+    while mv.__next__():
+        yield True
 
     mv = openHand()
     while mv.__next__():
@@ -712,7 +747,26 @@ def grabWork(x, y):
     while time.time() - start_time < 3:
         yield
 
-    mv = waitMoveJoint('J2', -60)
+    x = (grab_cnt % 4) * 50
+    grab_cnt += 1
+
+    mv = waitPos(Pos1)
+    while mv.__next__():
+        yield True
+
+    mv = waitPos(Pos2)
+    while mv.__next__():
+        yield True
+
+    mv = waitMoveXY(x, -150)
+    while mv.__next__():
+        yield True
+
+    mv = openHand()
+    while mv.__next__():
+        yield True
+
+    mv = waitPos(Pos1)
     while mv.__next__():
         yield True
 
@@ -801,21 +855,18 @@ if __name__ == '__main__':
             # 目標ポーズ
             pose = getPose()
 
-            x, y, z, phi, theta = pose
-            rads_down = IK2(x, y, True)
-            rads_up   = IK2(x, y, False)
+            if True:
 
-            if rads_down is None or rads_up is None:
-                continue
-            
-            degs_down = [ degree(rad) for rad in rads_down ]
-            degs_up   = [ degree(rad) for rad in rads_up ]
+                x, y, z, phi, theta = pose
+                moving = waitMoveXY(x, y)
 
-            moving = moveAllJoints([degs_up, degs_down])
+            else:
+                rads = IK(pose)
+                if rads is not None:
+                    degs = degree(rads)
+                    moving = moveAllJoints([ degs ])
 
-            # 逆運動学
-            # rads = IK(pose)
-            # moving = moveAllJoints([degs])
+
 
         elif event == "Calibrate":
             moving = Calibrate()        
@@ -842,9 +893,8 @@ if __name__ == '__main__':
             degs[5] = degree(Angles[5])
             moving = moveAllJoints([degs])
             
-        elif event == "Ready":
-            degs = [ 0, -80, 80, 80, 0, 0  ]
-            moving = moveAllJoints([degs])
+        elif event == "Ready":            
+            moving = moveAllJoints([Pos1])
 
         elif event == "Send":
             eye_x, eye_y = sendImage(values)
