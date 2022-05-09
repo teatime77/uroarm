@@ -1,3 +1,5 @@
+import json
+
 class Glb:
     def __init__(self):
         self.regX = None
@@ -11,3 +13,7 @@ theGlb = Glb()
 
 def getGlb():
     return theGlb
+
+def writeParams(params):
+    with open('arm.json', 'w') as f:
+        json.dump(params, f, indent=4)

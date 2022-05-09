@@ -5,7 +5,7 @@ import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import getGlb
+from util import getGlb, writeParams
 from s_curve import SCurve
 
 try:
@@ -73,6 +73,14 @@ def loadParams():
     degrees = [ float(s) for s in params['degrees'] ]
     Angles  = radian(degrees)
 
+    cal = params['calibration']
+
+    eye_xy = cal['eye-xy']
+    hand_x = cal['hand-x']
+    hand_y = cal['hand-y']
+
+    fitRegression(eye_xy, hand_x, hand_y)
+
 def saveParams():
     obj = {}
     for key in jKeys:
@@ -81,8 +89,7 @@ def saveParams():
 
     params['offsets'] = obj
 
-    with open('arm.json', 'w') as f:
-        json.dump(params, f)
+    writeParams(params)
 
     print("saved:" + json.dumps(params))
 
@@ -206,11 +213,30 @@ def moveAllJoints(dsts):
 
     isMoving = False
 
+def fitRegression(eye_xy, hand_x, hand_y):
+    X = np.array(eye_xy)
+    hand_x = np.array(hand_x)
+    hand_y = np.array(hand_y)
+
+    glb = getGlb()
+    glb.regX = LinearRegression().fit(X, hand_x)
+
+    glb.regY = LinearRegression().fit(X, hand_y)
+
+    print('reg x', glb.regX.coef_)
+    print('reg y', glb.regY.coef_)
+
+    prd_x = glb.regX.predict(X)
+    prd_y = glb.regY.predict(X)
+    print(f'X:{X.shape} arm-x:{hand_x.shape} arm-y:{hand_y.shape} prd-x:{prd_x.shape} prd-y:{prd_y.shape}')
+
+    for i in range(X.shape[0]):
+        print(f'cam:{X[i, 0]} {X[i, 1]} arm:{hand_x[i]} {hand_y[i]} prd:{int(prd_x[i]) - hand_x[i]} {int(prd_y[i]) - hand_y[i]}')
 
 def Calibrate():
-    cam_xy = []
-    arm_x = []
-    arm_y = []
+    eye_xy = []
+    hand_x = []
+    hand_y = []
 
     for x in [150, 200, 250, 300]:
         for y in [-50, 0, 50]:
@@ -237,28 +263,19 @@ def Calibrate():
                 yield
             print(f'hand eye x:{x} y:{y} cx:{camX()} cy:{camY()}')
 
-            cam_xy.append([ camX(), camY() ])
-            arm_x.append(x)
-            arm_y.append(y)
+            eye_xy.append([ camX(), camY() ])
+            hand_x.append(x)
+            hand_y.append(y)
 
-    X = np.array(cam_xy)
-    arm_x = np.array(arm_x)
-    arm_y = np.array(arm_y)
+    params['calibration'] = {
+        'eye-xy' : eye_xy,
+        'hand-x' : hand_x,
+        'hand-y' : hand_y
+    }
 
-    glb = getGlb()
-    glb.regX = LinearRegression().fit(X, arm_x)
+    writeParams(params)
 
-    glb.regY = LinearRegression().fit(X, arm_y)
-
-    print('reg x', glb.regX.coef_)
-    print('reg y', glb.regY.coef_)
-
-    prd_x = glb.regX.predict(X)
-    prd_y = glb.regY.predict(X)
-    print(f'X:{X.shape} arm-x:{arm_x.shape} arm-y:{arm_y.shape} prd-x:{prd_x.shape} prd-y:{prd_y.shape}')
-
-    for i in range(X.shape[0]):
-        print(f'cam:{X[i, 0]} {X[i, 1]} arm:{arm_x[i]} {arm_y[i]} prd:{int(prd_x[i]) - arm_x[i]} {int(prd_y[i]) - arm_y[i]}')
+    fitRegression(eye_xy, hand_x, hand_y)
 
 def moveIK():
     # 初期ポーズ
@@ -798,8 +815,7 @@ if __name__ == '__main__':
         elif event == sg.WIN_CLOSED or event == 'Close':
             params['degrees'] = ['%.1f' % d for d in degree(Angles) ]
 
-            with open('arm.json', 'w') as f:
-                json.dump(params, f)
+            writeParams(params)
 
             closeCamera()
             break
