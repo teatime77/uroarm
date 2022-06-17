@@ -76,14 +76,14 @@ if __name__ == '__main__':
     for idx in range(2):
         S_all = 3 if idx == 0 else -3
 
-        sc = SCurve(2, S_all)
+        sc = SCurve(S_all)
         ts = np.linspace(0, 2 * sc.t1, cnt)
 
         dt = 2 * sc.t1 / cnt
 
         # 躍度
         ax = fig.add_subplot(4, 2, 1 + idx)
-        ax.plot(ts, [sc.jerk(t) for t in ts])
+        ax.plot(ts, [sc.jerk(t) for t in ts], color='blue')
         ax.set_title('躍度', fontname="Meiryo")
 
         # 加速度
