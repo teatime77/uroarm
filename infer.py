@@ -66,10 +66,7 @@ def infer_img(img_que : Queue, result_que : Queue):
     model_file = 'cola_16.xml'
     model_file = 'ichigo_16.xml'
 
-    img_dir = '../data/cola/img'
-    img_dir = '../data/ichigo/img'
-
-    model = ie.read_model(model=model_file)
+    model = ie.read_model(model=f'model/{model_file}')
     compiled_model = ie.compile_model(model=model, device_name="GPU")
 
     input_layer_ir = next(iter(compiled_model.inputs))
@@ -112,35 +109,57 @@ def infer_img(img_que : Queue, result_que : Queue):
 
         result_que.put((cx, cy))
 
+class Inference():
+    def __init__(self):
+        self.img_que = Queue()
+        self.result_que = Queue()
+        
+        self.pw = Process(target=infer_img, args=(self.img_que, self.result_que))
+
+        self.pw.start()
+
+    def put(self, bmp):
+        self.img_que.put(bmp)
+
+    def get_nowait(self):
+        try:
+            cx, cy = self.result_que.get_nowait()
+
+            return cx, cy
+
+        except queue.Empty:
+            return None
+
+    def get(self, bmp):
+        self.put(bmp)
+        while True:
+            ret = self.get_nowait()
+            if ret is not None:
+                return ret
+
+            time.sleep(0.1)
+    
 
 if __name__ == '__main__':
     freeze_support()
-
 
     cv2.namedWindow('window')
 
     cap = cv2.VideoCapture(0) # 任意のカメラ番号に変更する
 
-    img_que = Queue()
-    result_que = Queue()
-
-    pw = Process(target=infer_img, args=(img_que, result_que))
-
-    pw.start()
+    inference = Inference()
 
     ret, bmp = cap.read()
-    img_que.put(bmp.copy())
+    inference.put(bmp)
 
     cx, cy = (None, None)
     while True:
         ret, bmp = cap.read()
 
-        try:
-            cx, cy = result_que.get_nowait()
-            img_que.put(bmp.copy())
-
-        except queue.Empty:
-            pass
+        ret = inference.get_nowait()
+        if ret is not None:
+            cx, cy = ret
+            inference.put(bmp)
 
         if cx is not None:
 
@@ -150,3 +169,4 @@ if __name__ == '__main__':
         k = cv2.waitKey(1)
         # if k == ord('q'):
         #     break
+

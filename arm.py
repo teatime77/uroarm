@@ -7,6 +7,7 @@ from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from util import getGlb, writeParams, t_all
 from s_curve import SCurve
+from infer import Inference
 
 try:
     import Adafruit_PCA9685
@@ -778,6 +779,8 @@ if __name__ == '__main__':
 
     initCamera()
 
+    inference = Inference()
+
     if useSerial:
         ser = serial.Serial('COM3', 115200, timeout=1, write_timeout=1)
 
@@ -897,7 +900,8 @@ if __name__ == '__main__':
             moving = moveAllJoints([Pos1])
 
         elif event == "Send":
-            eye_x, eye_y = sendImage(values)
+
+            eye_x, eye_y = sendImage(values, inference)
             hand_x, hand_y = Eye2Hand(eye_x, eye_y)
             moving = grabWork(hand_x, hand_y)
 

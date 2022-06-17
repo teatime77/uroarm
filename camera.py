@@ -1,17 +1,8 @@
 # 【python/OpenCV】カメラ映像をキャプチャするプログラム
 # https://rikoubou.hatenablog.com/entry/2019/03/07/153430
 
-import socket
-import pickle
 import cv2
-import time
-import json
-from datetime import datetime
 import numpy as np
-import pathlib
-import shutil
-import glob
-import os
 
 from util import getGlb
 
@@ -155,18 +146,9 @@ def camX():
 def camY():
     return CamY
 
-sock = None
 
-def initSock():
-    global sock
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    print('connecting ...')
-    sock.connect((socket.gethostname(), 1235))
-    print('connect OK')
-
-def sendImage(values):
+def sendImage(values, inference):
     global wait_infer, ann
 
     # wait_infer = True
@@ -174,24 +156,9 @@ def sendImage(values):
 
     frame = getCameraFrame()
 
-    if sock is None:
-        initSock()
+    cx, cy = inference.get(frame)
 
-    msg = pickle.dumps(frame)
-
-    print('send', len(msg))
-    sock.send(msg)
-    print('send OK')
-
-    print('rcv ...')
-    full_msg = sock.recv(1024)
-
-    obj = pickle.loads(full_msg)
-
-    cx = obj['cx']
-    cy = obj['cy']
-
-    print('rcv', obj, cx, cy)
+    print('rcv', cx, cy)
 
     ann = {
         'bbox': [ cx, cy ]
