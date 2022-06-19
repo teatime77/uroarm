@@ -2,5 +2,4 @@ __pycache__/
 venv/
 .vscode/
 model/
-arm.json
-J123-x-*.csv
+data/

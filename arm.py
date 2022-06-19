@@ -63,10 +63,12 @@ def radian(d):
         return d * math.pi / 180.0
 
 def loadParams():
-    global offsets, params, Angles
+    global com_port, offsets, scales, params, Angles
 
-    with open('arm.json', 'r') as f:
+    with open('data/arm.json', 'r') as f:
         params = json.load(f)
+
+    com_port = params['COM'] 
 
     offsets = params['offsets']
 
@@ -74,6 +76,8 @@ def loadParams():
         offsets[key] = float(offsets[key])
 
     print("offsets", offsets)
+
+    scales = [ float(x) for x in params['scales'] ]
 
     degrees = [ float(s) for s in params['degrees'] ]
     Angles  = radian(degrees)
@@ -123,10 +127,8 @@ def setPWM(ch, pos):
 def setAngleNano(event, t):
     m = { "J1":0, "J2":1, "J3":2, "J4":3, "J5":4, "J6":5 }
 
-    v = [ 90, 95, 103, 105, 90, 90 ]
-
     i = jKeys.index(event)
-    t *= float(v[i]) / 90.0
+    t *= scales[i]
 
     t += radian(offsets[event])
 
@@ -651,7 +653,7 @@ def naturalPose():
             file_name = 'J123-x-up.csv'
             target_z = 40
             
-        with open(file_name, 'w') as f:
+        with open(f'data/{file_name}', 'w') as f:
             f.write('J1,J23,x,diff\n')
 
             min_deg1 = None
@@ -782,7 +784,7 @@ if __name__ == '__main__':
     inference = Inference()
 
     if useSerial:
-        ser = serial.Serial('COM3', 115200, timeout=1, write_timeout=1)
+        ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
 
 
         # while True:

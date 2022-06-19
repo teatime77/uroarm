@@ -18,7 +18,9 @@ class SCurve:
         self.w = w
         self.A = self.vmax * w * w / (2 * pi)
         s1 = (2 * self.A * pi * pi) / (w * w * w)
-        assert abs(self.S1 - s1) < 0.00000000000001
+        diff = abs(self.S1 - s1)
+        if 0.00000000000001 < diff:
+            print('s-curve diff:%.15f' % diff)
 
     def jerk(self, t):
         if t < self.t1:

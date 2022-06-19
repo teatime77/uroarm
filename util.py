@@ -17,5 +17,5 @@ def getGlb():
     return theGlb
 
 def writeParams(params):
-    with open('arm.json', 'w') as f:
+    with open('data/arm.json', 'w') as f:
         json.dump(params, f, indent=4)
