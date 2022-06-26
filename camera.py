@@ -17,7 +17,7 @@ CamY = 0
 
 
 def initCamera():
-    global cap
+    global cap, WIDTH, HEIGHT
 
     cap = cv2.VideoCapture(0) # 任意のカメラ番号に変更する
 
@@ -30,8 +30,14 @@ def initCamera():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
 
-    assert cap.get(cv2.CAP_PROP_FRAME_WIDTH ) == WIDTH
-    assert cap.get(cv2.CAP_PROP_FRAME_HEIGHT) == HEIGHT
+    w = int( cap.get(cv2.CAP_PROP_FRAME_WIDTH ) )
+    h = int( cap.get(cv2.CAP_PROP_FRAME_HEIGHT) )
+    if w != WIDTH or h != HEIGHT:
+
+        print(f'width:{w} height:{h} ==================================================')
+
+        WIDTH  = w
+        HEIGHT = h
 
 def showMark(values, frame, h_lo, h_hi):
     try:
@@ -103,7 +109,7 @@ def showMark(values, frame, h_lo, h_hi):
 def getCameraFrame():
     ret, frame = cap.read()
 
-    sz = 720
+    sz = min(WIDTH, HEIGHT)
     h, w, c = frame.shape
     assert(sz <= w and sz <= h)
     h1 = (h - sz) // 2

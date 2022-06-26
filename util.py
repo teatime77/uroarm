@@ -1,6 +1,6 @@
 import json
 
-t_all = 1
+t_all = 4
 
 class Glb:
     def __init__(self):
