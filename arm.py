@@ -192,12 +192,14 @@ def setOffsets():
     saveParams()
 
 def set_scales():
-    for ch, rad in enumerate(Angles[:-1]):
-        scales[ch] *= degree(rad) / 90.0
+    recs = [ 90.0, -90.0, 90.0, 90.0, 90.0, 90.0 ]
 
-        Angles[ch] = radian(90.0)
+    for ch, rad in enumerate(Angles):
+        scales[ch] *= degree(rad) / recs[ch]
 
-        window[jKeys[ch]].Update(90)
+        Angles[ch] = radian(recs[ch])
+
+        window[jKeys[ch]].Update(recs[ch])
 
     saveParams()
 
@@ -442,16 +444,16 @@ def calc(rads):
     p1 = Vec2(0, L0)
 
     p2 = p1 + (Vec2(-L1,0).rot(j1))
-    # print(f'p2: %d %d' % (int(- p2.x), int(p2.y)))
+    print(f'p2: {int(p2.x), int(p2.y)}')
 
     p3 = p2 + L2 * (p2 - p1).unit().rot(j2)
-    # print(f'p3: %d %d' % (int(- p3.x), int(p3.y)))
+    print(f'p3: %d %d' % (int(p3.x), int(p3.y)))
 
     p4 = p3 + L3 * (p3 - p2).unit().rot(j3 - 0.5 * np.pi)
-    # print(f'p4: %d %d' % (int(- p4.x), int(p4.y)))
+    print(f'p4: %d %d' % (int(p4.x), int(p4.y)))
 
     tcp = p4 + L4 * (p3 - p2).unit().rot(j3)
-    # print(f'tcp: %d %d' % (int(- tcp.x), int(tcp.y)))
+    print(f'tcp: %d %d' % (int(tcp.x), int(tcp.y)))
 
     et = (p4 - tcp).unit()
     theta = np.arctan2(et.y, et.x)
@@ -894,7 +896,7 @@ if __name__ == '__main__':
             # 目標ポーズ
             pose = getPose()
 
-            if True:
+            if False:
 
                 x, y, z, phi, theta = pose
                 moving = waitMoveXY(x, y)
