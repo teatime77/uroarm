@@ -296,6 +296,42 @@ def waitPos(pos):
 
     yield False
 
+def move_linear():
+    global isMoving
+
+    isMoving = True
+
+    src = calc(Angles)
+
+    dst = getPose()
+
+    start_time = time.time()
+    while True:
+        t = time.time() - start_time
+        if t_all <= t:
+            break
+
+        r = t / t_all
+
+        pose = [ r * d + (1 - r) * s for s, d in zip(src, dst) ]
+
+        rads = IK(pose)
+        if rads is not None:
+            degs = degree(rads)
+
+            for key, deg in zip(jKeys, degs):
+                setAngle(key, deg)
+
+        yield
+
+    print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
+
+    isMoving = False
+
+
+
+
+
 def waitMoveXY(x, y):
     rads_down = IK2(x, y, True)
     # rads_up   = IK2(x, y, False)
@@ -894,20 +930,15 @@ if __name__ == '__main__':
             
         elif event == "Move" or event in posKeys:
             # 目標ポーズ
-            pose = getPose()
 
             if False:
 
+                pose = getPose()
                 x, y, z, phi, theta = pose
                 moving = waitMoveXY(x, y)
 
             else:
-                rads = IK(pose)
-                if rads is not None:
-                    degs = degree(rads)
-                    moving = moveAllJoints(degs)
-
-
+                moving = move_linear()
 
         elif event == "Calibrate":
             moving = Calibrate()        
