@@ -97,6 +97,9 @@ def saveParams():
 
 
     params['offsets'] = obj
+    params['scales'] = scales
+
+    params['degrees'] = [degree(x) for x in Angles]
 
     writeParams(params)
 
@@ -149,12 +152,7 @@ def setAngle(event, deg):
 
     deg += offsets[event]
 
-    if event == "J2":
-        deg *= -1
-
-    v = [ 90, 97, 105, 100, 90, 90 ]
-
-    deg *= float(v[ch]) / 90.0
+    deg *= scales[ch]
 
     deg += 90
 
@@ -184,46 +182,83 @@ def showJoints(ts):
         window[key].Update(int(round(degree(j))))
 
 def setOffsets():
-    for key in jKeys:
+    for ch, key in enumerate(jKeys):
         offsets[key] += values[key]
 
         window[key].Update(0)
 
+        Angles[ch] = 0
+
     saveParams()
+
+def set_scales():
+    for ch, rad in enumerate(Angles[:-1]):
+        scales[ch] *= degree(rad) / 90.0
+
+        Angles[ch] = radian(90.0)
+
+        window[jKeys[ch]].Update(90)
+
+    saveParams()
+
+def move_joint(key, dst):
+    global isMoving
+
+    isMoving = True
+
+    idx = jKeys.index(key)
+    src = degree(Angles[idx])
+
+    sc = SCurve(dst - src)
+
+    start_time = time.time()
+    while True:
+        t = time.time() - start_time
+        if t_all <= t:
+            break
+        
+        setAngle(key, src + sc.dist(t))
+
+        yield
+
+    print("move joint end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
+
+    isMoving = False
+
 
 def moveAllJoints(dsts):
     global isMoving
 
     isMoving = True
-    for dst in dsts:
-        src = [degree(x) for x in Angles]
 
-        scs = [ SCurve(dst[j] - src[j]) for j in range(nax) ]
+    srcs = [degree(x) for x in Angles]
 
-        start_time = time.time()
-        while True:
-            t = time.time() - start_time
-            if t_all <= t:
-                break
+    scs = [ SCurve(dsts[j] - srcs[j]) for j in range(nax) ]
 
-            for j in range(nax):
-                sc = scs[j]
-                
-                deg = src[j] + sc.dist(t)
-                setAngle(jKeys[j], deg)
+    start_time = time.time()
+    while True:
+        t = time.time() - start_time
+        if t_all <= t:
+            break
 
-            yield
+        for j in range(nax):
+            sc = scs[j]
+            
+            deg = srcs[j] + sc.dist(t)
+            setAngle(jKeys[j], deg)
 
-        print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
+        yield
+
+    print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
     isMoving = False
 
-def waitMoveAllJoints(dsts):
+def waitMoveAllJoints(dst):
     global isMoving
 
     isMoving = True
 
-    mv = moveAllJoints(dsts)
+    mv = moveAllJoints(dst)
     while True:                
         try:
             mv.__next__()
@@ -253,7 +288,7 @@ def waitPos(pos):
     degs = list(pos)
     degs[hand_idx] = degree(Angles[hand_idx])
 
-    mv = waitMoveAllJoints([degs])
+    mv = waitMoveAllJoints(degs)
     while mv.__next__():
         yield True
 
@@ -269,7 +304,7 @@ def waitMoveXY(x, y):
     degs_down = [ degree(rad) for rad in rads_down ]
     # degs_up   = [ degree(rad) for rad in rads_up ]
 
-    mv = waitMoveAllJoints([degs_down])
+    mv = waitMoveAllJoints(degs_down)
     while mv.__next__():
         yield True
 
@@ -310,7 +345,7 @@ def Calibrate():
                 continue
             
             dst_deg = [degree(rad) for rad in dst_rad]
-            mv = waitMoveAllJoints([dst_deg])
+            mv = waitMoveAllJoints(dst_deg)
             while mv.__next__():
                 yield
 
@@ -597,7 +632,7 @@ def move(dst):
         if idx % 10 == 0:
             yield
 
-    moveAllJoints([ts])
+    moveAllJoints(ts)
         
 def test():
     global angles
@@ -738,7 +773,7 @@ def grabWork(x, y):
     
     dst_deg = [degree(rad) for rad in dst_rad]
 
-    mv = waitMoveAllJoints([dst_deg])
+    mv = waitMoveAllJoints(dst_deg)
     while mv.__next__():
         yield
 
@@ -825,7 +860,7 @@ if __name__ == '__main__':
             spin('R2', 'R2', 0,   0, 120 )
         ])
         ],
-        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
+        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Scale'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
     ]
 
     # Create the Window
@@ -853,8 +888,7 @@ if __name__ == '__main__':
                 print("stop moving")
             
         if event in jKeys:
-            degs = [ float(values[key]) for key in jKeys ]
-            moving = moveAllJoints([ degs ])
+            moving = move_joint(event, float(values[event]))
             
         elif event == "Move" or event in posKeys:
             # 目標ポーズ
@@ -869,7 +903,7 @@ if __name__ == '__main__':
                 rads = IK(pose)
                 if rads is not None:
                     degs = degree(rads)
-                    moving = moveAllJoints([ degs ])
+                    moving = moveAllJoints(degs)
 
 
 
@@ -882,6 +916,9 @@ if __name__ == '__main__':
             
         elif event == 'Home':
             setOffsets()
+            
+        elif event == 'Scale':
+            set_scales()
                 
         elif event == "Test":
             test()
@@ -896,10 +933,10 @@ if __name__ == '__main__':
         elif event == "Reset":
             degs = [0] * nax
             degs[5] = degree(Angles[5])
-            moving = moveAllJoints([degs])
+            moving = moveAllJoints(degs)
             
         elif event == "Ready":            
-            moving = moveAllJoints([Pos1])
+            moving = moveAllJoints(Pos1)
 
         elif event == "Send":
 
