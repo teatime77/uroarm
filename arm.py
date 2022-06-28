@@ -5,7 +5,8 @@ import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import getGlb, writeParams, t_all
+from util import jKeys, getGlb, radian, writeParams, loadParams, t_all, spin, degree
+from calibration import calibrate_xy
 from s_curve import SCurve
 from infer import Inference
 
@@ -46,49 +47,7 @@ links = [ zs[i+1] - zs[i] for i in range(4) ]
 
 L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 162 ]
 
-jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
 posKeys = [ "X", "Y", "Z", "R1", "R2" ]
-
-
-def degree(t):
-    if type(t) is list:
-        return [ x * 180.0 / math.pi for x in t ]
-    else:
-        return t * 180.0 / math.pi
-
-def radian(d):
-    if type(d) is list:
-        return [ x * math.pi / 180.0 for x in d ]
-    else:
-        return d * math.pi / 180.0
-
-def loadParams():
-    global com_port, offsets, scales, params, Angles
-
-    with open('data/arm.json', 'r') as f:
-        params = json.load(f)
-
-    com_port = params['COM'] 
-
-    offsets = params['offsets']
-
-    for key in jKeys:
-        offsets[key] = float(offsets[key])
-
-    print("offsets", offsets)
-
-    scales = [ float(x) for x in params['scales'] ]
-
-    degrees = [ float(s) for s in params['degrees'] ]
-    Angles  = radian(degrees)
-
-    cal = params['calibration']
-
-    eye_xy = cal['eye-xy']
-    hand_x = cal['hand-x']
-    hand_y = cal['hand-y']
-
-    fitRegression(eye_xy, hand_x, hand_y)
 
 def saveParams():
     obj = {}
@@ -305,24 +264,27 @@ def move_linear():
 
     dst = getPose()
 
-    start_time = time.time()
-    while True:
-        t = time.time() - start_time
-        if t_all <= t:
-            break
+    with open('ik.csv', 'w') as f:
+        f.write('time,J1,J2,J3,J4,J5,J6\n')
+        start_time = time.time()
+        while True:
+            t = time.time() - start_time
+            if t_all <= t:
+                break
 
-        r = t / t_all
+            r = t / t_all
 
-        pose = [ r * d + (1 - r) * s for s, d in zip(src, dst) ]
+            pose = [ r * d + (1 - r) * s for s, d in zip(src, dst) ]
 
-        rads = IK(pose)
-        if rads is not None:
-            degs = degree(rads)
+            rads = IK(pose)
+            if rads is not None:
+                degs = degree(rads)
+                f.write(f'{t},{",".join(["%.1f" % x for x in degs])}\n')
 
-            for key, deg in zip(jKeys, degs):
-                setAngle(key, deg)
+                for key, deg in zip(jKeys, degs):
+                    setAngle(key, deg)
 
-        yield
+            yield
 
     print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
@@ -348,64 +310,7 @@ def waitMoveXY(x, y):
 
     yield False
 
-def fitRegression(eye_xy, hand_x, hand_y):
-    X = np.array(eye_xy)
-    hand_x = np.array(hand_x)
-    hand_y = np.array(hand_y)
 
-    glb = getGlb()
-    glb.regX = LinearRegression().fit(X, hand_x)
-
-    glb.regY = LinearRegression().fit(X, hand_y)
-
-    print('reg x', glb.regX.coef_)
-    print('reg y', glb.regY.coef_)
-
-    prd_x = glb.regX.predict(X)
-    prd_y = glb.regY.predict(X)
-    print(f'X:{X.shape} arm-x:{hand_x.shape} arm-y:{hand_y.shape} prd-x:{prd_x.shape} prd-y:{prd_y.shape}')
-
-    for i in range(X.shape[0]):
-        print(f'cam:{X[i, 0]} {X[i, 1]} arm:{hand_x[i]} {hand_y[i]} prd:{int(prd_x[i]) - hand_x[i]} {int(prd_y[i]) - hand_y[i]}')
-
-def Calibrate():
-    eye_xy = []
-    hand_x = []
-    hand_y = []
-
-    for x in [150, 200, 250, 300]:
-        for y in [-50, 0, 50]:
-            print(f'start move x:{x} y:{y}')
-            dst_rad = IK2(x, y, True)
-
-            if dst_rad is None:
-                print(f'skip move x:{x} y:{y}')
-                continue
-            
-            dst_deg = [degree(rad) for rad in dst_rad]
-            mv = waitMoveAllJoints(dst_deg)
-            while mv.__next__():
-                yield
-
-            print("move end")
-            start_time = time.time()
-            while time.time() - start_time < 4:
-                yield
-            print(f'hand eye x:{x} y:{y} cx:{camX()} cy:{camY()}')
-
-            eye_xy.append([ camX(), camY() ])
-            hand_x.append(x)
-            hand_y.append(y)
-
-    params['calibration'] = {
-        'eye-xy' : eye_xy,
-        'hand-x' : hand_x,
-        'hand-y' : hand_y
-    }
-
-    writeParams(params)
-
-    fitRegression(eye_xy, hand_x, hand_y)
 
 def moveIK():
     # 初期ポーズ
@@ -762,20 +667,6 @@ def naturalPose():
                     f.write('%.1f,%.1f,%.1f,%.1f\n' % (min_deg1, deg23, min_x, min_diff))
     print("end")
 
-H_lo =  80
-H_hi = 140
-S_lo = 170
-S_hi = 255
-V_lo = 180
-V_hi = 255
-
-def spin(label, key, val, min_val, max_val, bind_return_key = True):
-
-    return [ 
-        sg.Text(label),
-        sg.Spin(list(range(min_val, max_val + 1)), initial_value=val, size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
-    ]
-
 def openHand():
     mv = waitMoveJoint('J6', -25)
     while mv.__next__():
@@ -848,9 +739,11 @@ def grabWork(x, y):
 
 if __name__ == '__main__':
 
-    naturalPose()
+    # naturalPose()
 
-    loadParams()
+    params, com_port, offsets, scales, Angles = loadParams()
+
+    calibrate_xy(params)
 
     initCamera()
 
@@ -877,11 +770,6 @@ if __name__ == '__main__':
     # All the stuff inside your window.
     layout = [
         [
-        sg.Column([
-            spin('H lo', '-Hlo-', H_lo, 0, 180, False) + spin('H hi', '-Hhi-', H_hi, 0, 180, False),
-            spin('S lo', '-Slo-', S_lo, 0, 255, False) + spin('S hi', '-Shi-', S_hi, 0, 255, False),
-            spin('V lo', '-Vlo-', V_lo, 0, 255, False) + spin('V hi', '-Vhi-', V_hi, 0, 255, False)
-        ]),
         sg.Column([
             spin('J1', 'J1', degrees[0], -120, 130),
             spin('J2', 'J2', degrees[1], -120, 130),
@@ -939,9 +827,6 @@ if __name__ == '__main__':
 
             else:
                 moving = move_linear()
-
-        elif event == "Calibrate":
-            moving = Calibrate()        
 
         elif event == "Stop":
             moving = None
