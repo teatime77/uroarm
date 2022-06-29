@@ -5,7 +5,7 @@ import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import jKeys, getGlb, radian, writeParams, loadParams, t_all, spin, degree
+from util import jKeys, radian, writeParams, loadParams, t_all, spin, degree, Vec2, arctan2p
 from calibration import calibrate_xy
 from s_curve import SCurve
 from infer import Inference
@@ -71,13 +71,6 @@ def getPose():
 
     return dst
 
-def arctan2p(y, x):
-    rad = np.arctan2(y, x)
-    if 0 <= rad:
-        return rad
-    else:
-        return 2 * np.pi + rad
-
 def strPos(pos):
     x, y, z, r1, r2 = pos
     return "x:%.1f, y:%.1f, z:%.1f, r1:%.1f, r2:%.1f" % (x, y, z, degree(r1), degree(r2))
@@ -139,16 +132,6 @@ def showJoints(ts):
     for i, j in enumerate(ts):
         key = jointKey(i)
         window[key].Update(int(round(degree(j))))
-
-def setOffsets():
-    for ch, key in enumerate(jKeys):
-        offsets[key] += values[key]
-
-        window[key].Update(0)
-
-        Angles[ch] = 0
-
-    saveParams()
 
 def set_scales():
     recs = [ 90.0, -90.0, 90.0, 90.0, 90.0, 90.0 ]
@@ -346,38 +329,6 @@ def moveIK():
 
 
 
-class Vec2:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-    def len(self):
-        return math.sqrt(self.x * self.x + self.y * self.y )
-
-    def unit(self):
-        l = self.len()
-
-        assert(l != 0)
-
-        return Vec2(self.x / l, self.y / l)
-
-    def rot(self, t):
-        cs = math.cos(t)
-        sn = math.sin(t)
-
-        return Vec2(self.x * cs - self.y * sn, self.x * sn + self.y * cs)
-
-    def arctan2p(self):
-        return arctan2p(self.y, self.x)
-
-    def __rmul__(self, other):
-        return Vec2(other * self.x , other * self.y)
-
-    def __add__(self, other):
-        return Vec2(self.x + other.x, self.y + other.y)
-
-    def __sub__(self, other):
-        return Vec2(self.x - other.x, self.y - other.y)
 
 def calc(rads):
     j0, j1, j2, j3, j4, j5 = rads
@@ -741,7 +692,7 @@ if __name__ == '__main__':
 
     # naturalPose()
 
-    params, com_port, offsets, scales, Angles = loadParams()
+    params, com_port, offsets, scales, degrees, Angles = loadParams()
 
     calibrate_xy(params)
 
@@ -786,7 +737,7 @@ if __name__ == '__main__':
             spin('R2', 'R2', 0,   0, 120 )
         ])
         ],
-        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Home'), sg.Button('Scale'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
+        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Scale'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
     ]
 
     # Create the Window
@@ -831,9 +782,6 @@ if __name__ == '__main__':
         elif event == "Stop":
             moving = None
             stopMoving = True
-            
-        elif event == 'Home':
-            setOffsets()
             
         elif event == 'Scale':
             set_scales()

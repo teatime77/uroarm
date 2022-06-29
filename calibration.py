@@ -6,7 +6,7 @@ import json
 import cv2
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
-from util import jKeys, getGlb, radian, writeParams, loadParams, t_all, spin, degree
+from util import jKeys, getGlb, radian, writeParams, t_all, spin, degree, Vec2
 from s_curve import SCurve
 from infer import Inference
 
@@ -17,21 +17,11 @@ def mask_by_cont(shape, cont):
     assert mask.dtype == np.uint8
     return mask
 
-def showMark(values, frame, color):
-    if color == 'red':
-        h_lo = float(values['-Hlo1-'])
-        h_hi = float(values['-Hhi1-'])
-        s_lo = float(values['-Slo1-'])
-        v_lo = float(values['-Vlo1-'])
-    elif color == 'blue':
-        h_lo = float(values['-Hlo2-'])
-        h_hi = float(values['-Hhi2-'])
-        s_lo = float(values['-Slo2-'])
-        v_lo = float(values['-Vlo2-'])
-    else:
-        assert False
-
-        v_lo = float(values['-Vlo-'])
+def showMark(values, frame, idx: int):
+    h_lo = float(values[f'-Hlo{idx + 1}-'])
+    h_hi = float(values[f'-Hhi{idx + 1}-'])
+    s_lo = float(values[f'-Slo{idx + 1}-'])
+    v_lo = float(values[f'-Vlo{idx + 1}-'])
 
     img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) 
 
@@ -89,23 +79,36 @@ def showMark(values, frame, color):
             cv2.line(frame, (cx - 10, cy), (cx + 10, cy), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
 
             # print(f'{color} area:{max(areas)} {cv2.contourArea(cont)} len:{cv2.arcLength(cont,True)}')
-            return (cx, cy)
+            return Vec2(cx, -cy)
 
-    return (None, None)
+    return None
 
-def get_markers(values, frame):
+def get_markers(window, values, frame):
     
-    # 赤玉の中心
-    rx, ry = showMark(values, frame, 'red')
+    centers = [ showMark(values, frame, i) for i in range(3) ]
 
-    # 青玉の中心
-    bx, by = showMark(values, frame, 'blue')
+    if all(x is not None for x in centers):
+        v1 = (centers[1] - centers[0]).unit()
+        v2 = (centers[2] - centers[1]).unit()
 
-    return frame, (rx, ry), (bx, by)
+        ip = max(-1, min(1, v1.dot(v2)))
+        rad = math.acos(ip)
+        assert 0 <= rad and rad <= math.pi
+
+        marker_deg = degree(rad)
+        if v1.cross(v2) < 0:
+            marker_deg = -marker_deg
+
+        window['-rotation-'].update(value='%.1f' % marker_deg)
+    else:
+        marker_deg = None
+        window['-rotation-'].update(value='')
+
+    return frame, marker_deg
 
 
 
-def set_hsv_range(window, marker_idx, frame, center, radius):
+def set_hsv_range(params, window, marker_idx, frame, center, radius):
     img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.int32)
 
     img_hsv[:,:,0] = (img_hsv[:,:,0] - 80) % 180
@@ -120,10 +123,22 @@ def set_hsv_range(window, marker_idx, frame, center, radius):
 
     cv2.circle(frame, center, radius, (255,255,255), thickness=2) 
 
-    window[f'-Hlo{marker_idx}-'].update(value=round(h_avg - 3 * h_sdt))
-    window[f'-Hhi{marker_idx}-'].update(value=round(h_avg + 3 * h_sdt))
-    window[f'-Slo{marker_idx}-'].update(value=round(s_avg - 3 * s_sdt))
-    window[f'-Vlo{marker_idx}-'].update(value=round(v_avg - 3 * v_sdt))
+    h_lo = round(h_avg - 3 * h_sdt)
+    h_hi = round(h_avg + 3 * h_sdt)
+    s_lo = round(s_avg - 3 * s_sdt)
+    v_lo = round(v_avg - 3 * v_sdt)
+
+    window[f'-Hlo{marker_idx + 1}-'].update(value=h_lo)
+    window[f'-Hhi{marker_idx + 1}-'].update(value=h_hi)
+    window[f'-Slo{marker_idx + 1}-'].update(value=s_lo)
+    window[f'-Vlo{marker_idx + 1}-'].update(value=v_lo)
+
+    params["markers"][marker_idx] = {
+        "h-lo": h_lo,
+        "h-hi": h_hi,
+        "s-lo": s_lo,
+        "v-lo": v_lo
+    }
 
     return frame                   
 
@@ -146,6 +161,7 @@ def fitRegression(eye_xy, hand_x, hand_y):
 
     for i in range(X.shape[0]):
         print(f'cam:{X[i, 0]} {X[i, 1]} arm:{hand_x[i]} {hand_y[i]} prd:{int(prd_x[i]) - hand_x[i]} {int(prd_y[i]) - hand_y[i]}')
+
 
 def Calibrate(params, values):
     eye_xy = []
