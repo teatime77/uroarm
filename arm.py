@@ -7,7 +7,6 @@ from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from util import jKeys, radian, writeParams, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p
 from servo import init_servo, set_angle, move_joint, move_servo, servo_to_angle, angle_to_servo
-from calibration import calibrate_xy
 from s_curve import SCurve
 from infer import Inference
 
@@ -41,18 +40,6 @@ def getPose():
     dst[4] = radian(dst[4])
 
     return dst
-
-def strPos(pos):
-    x, y, z, r1, r2 = pos
-    return "x:%.1f, y:%.1f, z:%.1f, r1:%.1f, r2:%.1f" % (x, y, z, degree(r1), degree(r2))
-    
-
-
-
-
-
-def getAngles():
-    return [radian(values[x]) for x in jKeys]
 
 def jointKey(i):
     return "J%d" % (i+1)
@@ -148,62 +135,6 @@ def move_linear(dst):
     print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
 
-
-
-
-def waitMoveXY(x, y):
-    rads_down = IK2(x, y, True)
-    # rads_up   = IK2(x, y, False)
-
-    if rads_down is None:
-        yield False
-    
-    degs_down = [ degree(rad) for rad in rads_down ]
-    # degs_up   = [ degree(rad) for rad in rads_up ]
-
-    mv = waitMoveAllJoints(degs_down)
-    while mv.__next__():
-        yield True
-
-    yield False
-
-
-
-def moveIK():
-    # 初期ポーズ
-    src = calc(Angles)
-
-    # 目標ポーズ
-    dst = getPose()
-
-    cnt = 100
-    for step in range(cnt):
-
-        r = float(step + 1) / float(cnt)
-
-        # 途中のポーズ
-        pose = [0] * poseDim
-        for j in range(poseDim):
-            pose[j] = (1.0 - r) * src[j] + r * dst[j]
-
-        # 逆運動学
-        rads = IK(pose)
-
-        for j, rad in enumerate(rads):
-            # Angles[j] = rad
-            set_angle(j, degree(rad))
-
-            showJoints(Angles)
-
-        yield
-
-    print([degree(x) for x in Angles])
-    print("move end")
-
-
-
-
-
 def calc(rads):
     j0, j1, j2, j3, j4, j5 = rads
 
@@ -234,38 +165,7 @@ def calc(rads):
 
     return arr([ x, y, z, j4, theta])
 
-def IK2(x, y, is_down):
-    r   = Vec2(x, y).len()
 
-    J123_x = J123_x_down if is_down else J123_x_up
-
-    xs = [ x_ for _, _, x_ in J123_x ]
-    min_x = min(xs)
-    max_x = max(xs)
-    if r < min_x or max_x < r:
-        print('ik2 error %d %d %d' % (min_x, r, max_x))
-        return None
-
-    diff_x = [ abs(x_ - r) for x_ in xs ]
-    i = diff_x.index(min(diff_x))
-
-    deg1, deg23, _ = J123_x[i]
-
-    ts = [0] * nax
-
-    ts[0] = np.arctan2(y, x)
-
-    ts[1] = radian(deg1)
-
-    ts[2] = radian(deg23)
-
-    ts[3] = ts[2]
-
-    ts[4] = ts[0]
-
-    ts[5] = Angles[5]
-
-    return ts
 
 def IK(pose):
     x, y, z, phi, theta = pose
@@ -325,172 +225,13 @@ def IK(pose):
 
     return ts
 
-def calc2(ts):
-    tsum = 0.0
-    
-    for i, t in enumerate(ts):
-        if i == 0:
-            u = links[0]
-            v = 0.0
-                        
-        elif i <= 3:
-            
-            l = links[i]
-            tsum += t
-            u += l * math.cos(tsum)
-            v += l * math.sin(tsum)
-    
-    r = v
-    x = r * math.cos(ts[0])
-    y = r * math.sin(ts[0])
-    z = u
-    r2 = ts[4]
-    
-    return arr([x, y, z, tsum, r2])
-
-def Jacob(ts, pos):
-    m = np.zeros((nax-1, nax-1), dtype=np.float32)
-
-    dt = 0.001
-    for i in range(nax-1):
-        ts2 = np.array(ts)
-        ts2[i] += dt
-        pos2 = calc(ts2)
-        for j in range(nax-1):
-            m[j, i] = (pos2[j] - pos[j]) / dt
-
-    return m
-
 def showPos(pos):
     for k, p in zip(["X", "Y", "Z"], pos[:3]):
         window[k].Update(int(round(p)))
         
     for k, p in zip(["R1", "R2"], pos[3:]):
         window[k].Update(int(round(degree(p))))
-        
-def move(dst):
-    global Angles
-    
-    ts = arr(Angles)
-    ts[-1] = dst[-1]
-    src = calc(ts)
-    
-    dst = arr(dst)
-    
-    cnt = 100
-    pos = src
-    for idx in range(cnt):
-        if stopMoving:
-            break
-        
-        dst1 = src + (float(idx + 1) / float(cnt)) * (dst - src)
-        
-        dpos = dst1 - pos
-        
-        m = Jacob(ts, pos)
-        mi = np.linalg.inv(m)
-        
-        dang = np.dot(mi, dpos[:-1])
-        ts[:-1] += dang
-        showJoints(ts)
 
-        pos = calc(ts)
-        showPos(pos)
-        
-        if idx % 10 == 0:
-            yield
-
-    moveAllJoints(ts)
-        
-def test():
-    global angles
-    
-    a = np.array([[1,2],[3,4]])
-    b = np.array([5, 6])
-    c = np.dot(a,b)
-    ai = np.linalg.inv(a)
-
-    print("a = ", a)
-    print("b = ", b)
-    print("c = a * b =", c)
-    print("ai = inv(a) =", ai)
-
-    print("aixc =", np.dot(ai,c))
-
-    showJoints([0.0] * nax)
-
-    x, y, z, r1, r2 = calc(Angles)
-    print("x:%.1f, y:%.1f, z:%.1f, r1:%.1f, r2:%.1f" % (x, y, z, r1, r2))
-
-    t = 0.2 * math.pi
-    x, y, z, r1, r2 = calc([t] * nax)
-    print("x:%.1f, y:%.1f, z:%.1f, r1:%.1f, r2:%.1f" % (x, y, z, r1, r2))
-
-    pos = calc(Angles)
-    m = Jacob(Angles, pos)
-    print("Jacob", pos, m)
-
-    showJoints(Angles + 0.125 * math.pi)
-    src = calc(Angles)
-    m = Jacob(Angles, src)
-    print("Jacob", m, np.linalg.inv(m))
-
-def naturalPose():
-    global J123_x_down, J123_x_up
-    j0, j4, j5 = [ 0, 0, 0]
-
-    print("start")
-
-    J123_x_down = []
-    J123_x_up   = []
-
-    for is_down in [ True, False]:
-
-        if is_down:
-            J123_x = J123_x_down
-            file_name = 'J123-x-down.csv'
-            target_z = 10
-
-        else:
-            J123_x = J123_x_up
-            file_name = 'J123-x-up.csv'
-            target_z = 40
-            
-        with open(f'data/{file_name}', 'w') as f:
-            f.write('J1,J23,x,diff\n')
-
-            min_deg1 = None
-
-            for deg23 in np.linspace(0, 90, 90 * 5):
-                j23 = radian(deg23)
-                
-                min_diff = 1000
-                min_x = 0
-
-                if min_deg1 is None:
-                    deg1_list = np.linspace(-90, 0, 90 * 5)
-                else:
-                    deg1_list = np.linspace(min_deg1 - 1, min_deg1 + 1, 10)
-
-                for deg1 in deg1_list:
-                    j1 = radian(deg1)
-                    rads = [ j0, j1, j23, j23, j4, j5 ]
-
-                    x, y, z, _, _ = calc(rads).tolist()
-
-                    diff = abs(z - target_z)
-                    if diff < min_diff:
-                        min_diff = diff
-                        min_deg1 = deg1
-                        min_x    = x
-
-                    # elif min_diff < 1:
-                    #     break
-
-                if min_diff < 1:
-                    J123_x.append([min_deg1, deg23, min_x])
-                    f.write('%.1f,%.1f,%.1f,%.1f\n' % (min_deg1, deg23, min_x, min_diff))
-    print("end")
 
 def openHand():
     mv = waitMoveJoint('J6', -25)
@@ -564,13 +305,9 @@ def grabWork(x, y):
 
 if __name__ == '__main__':
 
-    # naturalPose()
-
     params, servo_angles, Angles = loadParams()
 
     init_servo(params, servo_angles, Angles)
-
-    calibrate_xy(params)
 
     initCamera()
 
@@ -591,7 +328,7 @@ if __name__ == '__main__':
             spin('R2', 'R2', 0,   0, 120 )
         ])
         ],
-        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Stop'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
+        [ sg.Button('Reset'), sg.Button('Ready'), sg.Button('Stop'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
     ]
 
     # Create the Window
@@ -656,16 +393,6 @@ if __name__ == '__main__':
         elif event == "Stop":
             moving = None
             stopMoving = True
-                
-        elif event == "Test":
-            test()
-            src = calc(Angles)
-            dst = calc(Angles + 0.125 * math.pi)
-
-            print("src", src)
-            print("dst", dst)
-
-            move(dst)
             
         elif event == "Reset":
             degs = [0] * nax

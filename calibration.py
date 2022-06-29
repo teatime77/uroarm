@@ -10,13 +10,6 @@ from util import jKeys, getGlb, radian, writeParams, t_all, spin, degree, Vec2
 from s_curve import SCurve
 from infer import Inference
 
-def mask_by_cont(shape, cont):
-    mask = np.zeros(shape, np.uint8)
-    cv2.drawContours(mask, [cont], 0, 255, -1)
-
-    assert mask.dtype == np.uint8
-    return mask
-
 def showMark(values, frame, idx: int):
     h_lo = float(values[f'-Hlo{idx + 1}-'])
     h_hi = float(values[f'-Hhi{idx + 1}-'])
@@ -34,33 +27,10 @@ def showMark(values, frame, idx: int):
     mask = np.zeros(h.shape, dtype=np.uint8)
     mask[ (h_lo <= h) & (h <= h_hi) & (s_lo <= s) & (v_lo <= v) ] = 255    
 
-
-    # f = cv2.inRange(img_hsv[:, :, 0], h_lo, h_hi)    
-
-    # f = frame.astype(float)
-    # f1 = 255.0 * f[:, :, color_idx] / (f[:, :, 0] + f[:, :, 1] + f[:, :, 2])
-    # f = np.fmin(f1, 0.3 * f[:, :, color_idx])
-    # f = f.astype(np.uint8)
-
-    # if color_idx == 0:
-    #     low = 100
-    # else:
-    #     low = 120
-
-    # f = cv2.inRange(f, low, 255)    
-
-    # frame[:, :, color_idx] = f
-    # frame[:, :, 1] = 0
-    # # frame[:, :, 2] = f
-
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    # for cont in contours:
-    #     cv2.drawContours(frame, [cont], 0, (255,255,255), -1)
 
     if len(contours) != 0:
         areas = [ cv2.contourArea(cont) for cont in contours ]
-
-        # areas = [ cv2.mean(v, mask=mask_by_cont(v.shape, cont)) for cont in contours ]
 
         max_index = areas.index( max(areas) )
         cont = contours[max_index]
@@ -73,12 +43,9 @@ def showMark(values, frame, idx: int):
             cx = int(M['m10']/M['m00'])
             cy = int(M['m01']/M['m00'])
 
-            # print(cv2.arcLength(cont,True))
-
             cv2.line(frame, (cx, cy - 10), (cx, cy + 10), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
             cv2.line(frame, (cx - 10, cy), (cx + 10, cy), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
 
-            # print(f'{color} area:{max(areas)} {cv2.contourArea(cont)} len:{cv2.arcLength(cont,True)}')
             return Vec2(cx, -cy)
 
     return None
@@ -105,7 +72,6 @@ def get_markers(window, values, frame):
         window['-rotation-'].update(value='')
 
     return frame, marker_deg
-
 
 
 def set_hsv_range(params, window, marker_idx, frame, center, radius):
@@ -208,15 +174,5 @@ def Calibrate(params, values):
     }
 
     writeParams(params)
-
-    fitRegression(eye_xy, hand_x, hand_y)
-
-
-def calibrate_xy(params):
-    cal = params['calibration']
-
-    eye_xy = cal['eye-xy']
-    hand_x = cal['hand-x']
-    hand_y = cal['hand-y']
 
     fitRegression(eye_xy, hand_x, hand_y)
