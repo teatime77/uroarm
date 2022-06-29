@@ -5,23 +5,11 @@ import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import jKeys, radian, writeParams, loadParams, t_all, spin, degree, Vec2, arctan2p
+from util import jKeys, radian, writeParams, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p
+from servo import init_servo, set_angle, move_joint, move_servo, servo_to_angle, angle_to_servo
 from calibration import calibrate_xy
 from s_curve import SCurve
 from infer import Inference
-
-try:
-    import Adafruit_PCA9685
-
-    useSerial = False
-
-except ModuleNotFoundError:
-    print("no Adafruit")
-
-    import serial
-
-    useSerial = True
-
 
 def arr(v):
     if isinstance(v, np.ndarray):
@@ -34,10 +22,8 @@ hand_idx = nax - 1
 poseDim = 5
 moving = None
 stopMoving = False
-Angles = [0] * nax
 dstAngles = [0] * nax
 moveCnt = 30
-isMoving = False
 grab_cnt = 0
 Pos1 = [   0, -80, 80, 80,   0, 0  ]
 Pos2 = [ -90, -80, 80, 80, -90, 0  ]
@@ -48,21 +34,6 @@ links = [ zs[i+1] - zs[i] for i in range(4) ]
 L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 162 ]
 
 posKeys = [ "X", "Y", "Z", "R1", "R2" ]
-
-def saveParams():
-    obj = {}
-    for key in jKeys:
-        obj[key] = "%.1f" % offsets[key]
-
-
-    params['offsets'] = obj
-    params['scales'] = scales
-
-    params['degrees'] = [degree(x) for x in Angles]
-
-    writeParams(params)
-
-    print("saved:" + json.dumps(params))
 
 def getPose():
     dst = [ float(values[k]) for k in posKeys ]
@@ -75,52 +46,10 @@ def strPos(pos):
     x, y, z, r1, r2 = pos
     return "x:%.1f, y:%.1f, z:%.1f, r1:%.1f, r2:%.1f" % (x, y, z, degree(r1), degree(r2))
     
-def setPWM(ch, pos):
-    pulse = round( 150 + (600 - 150) * (pos + 0.5 * math.pi) / math.pi )
-    pwm.set_pwm(ch, 0, pulse)
-
-def setAngleNano(event, t):
-    m = { "J1":0, "J2":1, "J3":2, "J4":3, "J5":4, "J6":5 }
-
-    i = jKeys.index(event)
-    t *= scales[i]
-
-    t += radian(offsets[event])
-
-    if event == "J2":
-        t *= -1
-
-    ch = m[event]
-    # print("move %s ch:%d pos:%.1f" % (event, ch, t))
-    setPWM(ch, t)
 
 
-def setAngle(event, deg):
-    global Angles
 
-    ch = jKeys.index(event)
 
-    Angles[ch] = radian(deg)
-
-    deg += offsets[event]
-
-    deg *= scales[ch]
-
-    deg += 90
-
-    cmd = "%d,%.1f\r" % (ch, deg)
-
-    while True:
-        try:
-            n = ser.write(cmd.encode('utf-8'))
-            break
-        except serial.SerialTimeoutException:
-            print("write time out")
-            time.sleep(1)
-
-    ret = ser.read_all().decode('utf-8')
-    if "error" in ret:
-        print("read", ret)
 
 def getAngles():
     return [radian(values[x]) for x in jKeys]
@@ -133,48 +62,8 @@ def showJoints(ts):
         key = jointKey(i)
         window[key].Update(int(round(degree(j))))
 
-def set_scales():
-    recs = [ 90.0, -90.0, 90.0, 90.0, 90.0, 90.0 ]
-
-    for ch, rad in enumerate(Angles):
-        scales[ch] *= degree(rad) / recs[ch]
-
-        Angles[ch] = radian(recs[ch])
-
-        window[jKeys[ch]].Update(recs[ch])
-
-    saveParams()
-
-def move_joint(key, dst):
-    global isMoving
-
-    isMoving = True
-
-    idx = jKeys.index(key)
-    src = degree(Angles[idx])
-
-    sc = SCurve(dst - src)
-
-    start_time = time.time()
-    while True:
-        t = time.time() - start_time
-        if t_all <= t:
-            break
-        
-        setAngle(key, src + sc.dist(t))
-
-        yield
-
-    print("move joint end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
-
-    isMoving = False
-
 
 def moveAllJoints(dsts):
-    global isMoving
-
-    isMoving = True
-
     srcs = [degree(x) for x in Angles]
 
     scs = [ SCurve(dsts[j] - srcs[j]) for j in range(nax) ]
@@ -189,26 +78,19 @@ def moveAllJoints(dsts):
             sc = scs[j]
             
             deg = srcs[j] + sc.dist(t)
-            setAngle(jKeys[j], deg)
+            set_angle(j, deg)
 
         yield
 
     print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
 
-    isMoving = False
-
 def waitMoveAllJoints(dst):
-    global isMoving
-
-    isMoving = True
-
     mv = moveAllJoints(dst)
     while True:                
         try:
             mv.__next__()
             yield True
         except StopIteration:
-            isMoving = False
             yield False
 
 def waitMoveJoint(jkey, dst_deg):
@@ -224,7 +106,7 @@ def waitMoveJoint(jkey, dst_deg):
             yield False
             
         deg = src_deg + sc.dist(t)
-        setAngle(jkey, deg)
+        set_angle(jidx, deg)
 
         yield True
 
@@ -238,14 +120,8 @@ def waitPos(pos):
 
     yield False
 
-def move_linear():
-    global isMoving
-
-    isMoving = True
-
+def move_linear(dst):
     src = calc(Angles)
-
-    dst = getPose()
 
     with open('ik.csv', 'w') as f:
         f.write('time,J1,J2,J3,J4,J5,J6\n')
@@ -264,14 +140,12 @@ def move_linear():
                 degs = degree(rads)
                 f.write(f'{t},{",".join(["%.1f" % x for x in degs])}\n')
 
-                for key, deg in zip(jKeys, degs):
-                    setAngle(key, deg)
+                for ch, deg in enumerate(degs):
+                    set_angle(ch, deg)
 
             yield
 
     print("move end %d msec" % int(1000 * (time.time() - start_time) / moveCnt))
-
-    isMoving = False
 
 
 
@@ -317,7 +191,7 @@ def moveIK():
 
         for j, rad in enumerate(rads):
             # Angles[j] = rad
-            setAngle(jKeys[j], degree(rad))
+            set_angle(j, degree(rad))
 
             showJoints(Angles)
 
@@ -692,7 +566,9 @@ if __name__ == '__main__':
 
     # naturalPose()
 
-    params, com_port, offsets, scales, degrees, Angles = loadParams()
+    params, servo_angles, Angles = loadParams()
+
+    init_servo(params, servo_angles, Angles)
 
     calibrate_xy(params)
 
@@ -700,35 +576,13 @@ if __name__ == '__main__':
 
     inference = Inference()
 
-    if useSerial:
-        ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
-
-
-        # while True:
-            
-        #     print(ch)
-        #     for c in ch:
-        #         print(c, hex(ord(c)))
-
-    else:
-        pwm = Adafruit_PCA9685.PCA9685(address=0x40)
-        pwm.set_pwm_freq(60)
-
-    degrees = degree(Angles)
-    degrees = [ int(round(x)) for x in degrees ]
-
-    sg.theme('DarkAmber')   # SystemDefault Add a touch of color
-    # All the stuff inside your window.
     layout = [
         [
         sg.Column([
-            spin('J1', 'J1', degrees[0], -120, 130),
-            spin('J2', 'J2', degrees[1], -120, 130),
-            spin('J3', 'J3', degrees[2], -120, 130),
-            spin('J4', 'J4', degrees[3], -120, 130),
-            spin('J5', 'J5', degrees[4], -120, 130),
-            spin('J6', 'J6', degrees[5], -120, 130)
-        ]),
+            spin2(f'J{i+1}', f'J{i+1}', servo_angles[i], degree(Angles[i]), -120, 120, True)
+            for i in range(6)
+        ])
+        ,
         sg.Column([
             spin('X', 'X' , 0,    0, 400 ),
             spin('Y', 'Y' , 0, -300, 300 ),
@@ -737,54 +591,71 @@ if __name__ == '__main__':
             spin('R2', 'R2', 0,   0, 120 )
         ])
         ],
-        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Move'), sg.Button('Stop'), sg.Button('Scale'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
+        [ sg.Button('Test'), sg.Button('Reset'), sg.Button('Ready'), sg.Button('Stop'), sg.Button('Send'), sg.Button('Calibrate'), sg.Button('Close')]
     ]
 
     # Create the Window
     window = sg.Window('Robot Control', layout, finalize=True)
 
-    # Event Loop to process "events" and get the "values" of the inputs
+    pos = calc(Angles)
+    showPos(pos)
+
+    servo_angle_keys = [ f'J{i+1}-servo' for i in range(6) ]
 
     last_capture = time.time()
     while True:
-        if moving is None:
-            event, values = window.read(timeout=1)
-        else:
-            event, values = window.read(timeout=1)
+        event, values = window.read(timeout=1)
+
+        if moving is not None:
             try:
                 moving.__next__()
             except StopIteration:
                 moving = None
                 stopMoving = False
 
-                showJoints(Angles)
+                params['servo-angles'] = servo_angles
+                writeParams(params)
 
                 pos = calc(Angles)
                 showPos(pos)
 
                 print("stop moving")
+
+        if event in servo_angle_keys:
+            ch = servo_angle_keys.index(event)
+            deg = float(values[event])
+
+            moving = move_servo(ch, deg)
+
+            window[jKeys[ch]].update(value=int(servo_to_angle(ch, deg)))
+
+        elif event in jKeys:
+            ch = jKeys.index(event)
+            deg = float(values[event])
+
+            moving = move_joint(ch, deg)
+
+            window[servo_angle_keys[ch]].update(value=int(angle_to_servo(ch, deg)))
             
-        if event in jKeys:
-            moving = move_joint(event, float(values[event]))
-            
-        elif event == "Move" or event in posKeys:
+        elif event in posKeys:
             # 目標ポーズ
 
-            if False:
+            pose = getPose()
+            rads = IK(pose)
+            if rads is not None:
 
-                pose = getPose()
-                x, y, z, phi, theta = pose
-                moving = waitMoveXY(x, y)
+                degs = degree(rads)
 
-            else:
-                moving = move_linear()
+                for ch, deg in enumerate(degs):
+
+                    window[jKeys[ch]].update(value=int(deg))
+                    window[servo_angle_keys[ch]].update(value=int(angle_to_servo(ch, deg)))
+
+                moving = move_linear(pose)
 
         elif event == "Stop":
             moving = None
             stopMoving = True
-            
-        elif event == 'Scale':
-            set_scales()
                 
         elif event == "Test":
             test()
@@ -811,7 +682,6 @@ if __name__ == '__main__':
             moving = grabWork(hand_x, hand_y)
 
         elif event == sg.WIN_CLOSED or event == 'Close':
-            params['degrees'] = ['%.1f' % d for d in degree(Angles) ]
 
             writeParams(params)
 
@@ -819,7 +689,7 @@ if __name__ == '__main__':
             break
 
         else:
-            if not isMoving:
+            if moving is None:
                 if 0.1 < time.time() - last_capture:
                     last_capture = time.time()
                     readCamera(values)

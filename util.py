@@ -7,7 +7,6 @@ t_all = 2
 
 jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
 
-
 class Vec2:
     def __init__(self, x, y):
         self.x = x
@@ -88,21 +87,23 @@ def loadParams():
     with open('data/arm.json', 'r') as f:
         params = json.load(f)
 
-    com_port = params['COM'] 
+    servo_angles = params['servo-angles']
 
-    offsets = params['offsets']
+    Angles  = [ radian((deg - b) / a) for deg, (a, b) in zip(servo_angles, params['calibration']['servo']) ]
 
-    scales  = [ float(x) for x in params['scales'] ]
-
-    degrees = [ float(s) for s in params['degrees'] ]
-
-    Angles  = radian(degrees)
-
-    return params, com_port, offsets, scales, degrees, Angles
+    return params, servo_angles, Angles
 
 def spin(label, key, val, min_val, max_val, bind_return_key = True):
 
     return [ 
         sg.Text(label),
         sg.Spin(list(range(min_val, max_val + 1)), initial_value=val, size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
+    ]
+
+def spin2(label, key, val1, val2, min_val, max_val, bind_return_key = True):
+
+    return [ 
+        sg.Text(label),
+        sg.Spin(list(range(min_val, max_val + 1)), initial_value=int(val1), size=(5, 1), key=key+'-servo', enable_events=not bind_return_key, bind_return_key=bind_return_key ),
+        sg.Spin(list(range(min_val, max_val + 1)), initial_value=int(val2), size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
     ]

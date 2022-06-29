@@ -4,7 +4,7 @@ import math
 import serial
 import cv2
 import PySimpleGUI as sg
-from util import radian, writeParams, loadParams, spin, degree, t_all
+from util import radian, writeParams, loadParams, spin, spin2, degree, t_all
 from camera import initCamera, getCameraFrame, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from calibration import Calibrate, get_markers, set_hsv_range
 import numpy as np
@@ -19,8 +19,55 @@ j_range = [
     [    0,  90 ]
 ]
 
+def init_servo_nano(params):
+    global pwm
+    try:
+        import Adafruit_PCA9685
+
+        pwm = Adafruit_PCA9685.PCA9685(address=0x40)
+        pwm.set_pwm_freq(60)
+
+    except ModuleNotFoundError:
+        print("no Adafruit")
+
+def setPWM(ch, pos):
+    pulse = round( 150 + (600 - 150) * (pos + 0.5 * math.pi) / math.pi )
+    pwm.set_pwm(ch, 0, pulse)
+
+def set_servo_angle_nano(ch, deg):
+    rad = radian(deg)
+    setPWM(ch, rad)
+
+
+def init_servo(params, servo_angles_arg, angles_arg):
+    global servo_angles, Angles, servo_param, ser
+
+    servo_angles = servo_angles_arg
+
+    Angles   = angles_arg
+    com_port = params['COM'] 
+
+    servo_param = params['calibration']['servo']
+
+    try:
+        ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
+    except serial.serialutil.SerialException: 
+        print(f'指定されたシリアルポートがありません。{com_port}')
+        sys.exit(0)
+
+def angle_to_servo(ch, deg):
+    coef, intercept = servo_param[ch]
+
+    return coef * deg + intercept
+
+def servo_to_angle(ch, deg):
+    coef, intercept = servo_param[ch]
+
+    return (deg - intercept) / coef
+
 def set_servo_angle(ch : int, deg : float):
-    Angles[ch] = radian(deg)
+    servo_angles[ch] = deg
+    Angles[ch] = radian(servo_to_angle(ch, deg))
 
     cmd = "%d,%.1f\r" % (ch, deg)
 
@@ -36,6 +83,11 @@ def set_servo_angle(ch : int, deg : float):
     if "error" in ret:
         print("read", ret)
 
+def set_angle(ch : int, deg : float):
+    servo_deg = angle_to_servo(ch, deg)
+
+    set_servo_angle(ch, servo_deg)
+
 def draw_grid(frame):
     h, w, _ = frame.shape
 
@@ -46,8 +98,7 @@ def draw_grid(frame):
         cv2.line(frame, (x, 0), (x, h), (255, 0, 0))
 
 def move_servo(ch, dst):
-
-    src = degree(Angles[ch])
+    src = servo_angles[ch]
 
     start_time = time.time()
     while True:
@@ -62,6 +113,24 @@ def move_servo(ch, dst):
 
         yield
 
+def move_joint(ch, dst):
+    src = servo_to_angle(ch, servo_angles[ch])
+
+    start_time = time.time()
+    while True:
+        total_time = t_all
+        t = (time.time() - start_time) / total_time
+        if 1 <= t:
+            break
+
+        deg = t * dst + (1 - t) * src
+
+        set_angle(ch, deg)
+
+        yield
+
+
+
 def sleep(sec):
     start_time = time.time()
     while time.time() - start_time < sec:
@@ -75,7 +144,7 @@ def calibrate_angle(event):
 
     min_deg, max_deg = j_range[ch]
 
-    dev_deg = degree(Angles[ch])
+    dev_deg = servo_angles[ch]
 
     cnt = 5
     targets = []
@@ -158,24 +227,12 @@ def printCoor(event,x,y,flags,param):
         dy = down_pos[1] - y
         radius = int(math.sqrt(dx * dx + dy * dy))
 
-
 if __name__ == '__main__':
 
-    if len(sys.argv) != 2:
-        print('COMを指定してください。')
-        print('python servo.py COM*')
-        sys.exit(0)
-
-    com_port = sys.argv[1]
-
-    try:
-        ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
-    except serial.serialutil.SerialException: 
-        print(f'指定されたシリアルポートがありません。{com_port}')
-        sys.exit(0)
-
-    params, com_port, offsets, scales, degrees, Angles = loadParams()
+    params, servo_angles, Angles = loadParams()
     marker1, marker2, marker3 = params['markers']
+
+    init_servo(params, servo_angles, Angles)
 
     initCamera()
 
@@ -215,16 +272,12 @@ if __name__ == '__main__':
             ])
             ,
             sg.Column([
-                spin('J1', 'J1', degrees[0], -120, 120, True) + [sg.Button('start', key='-start-J1-')],
-                spin('J2', 'J2', degrees[1], -120, 120, True) + [sg.Button('start', key='-start-J2-')],
-                spin('J3', 'J3', degrees[2], -120, 120, True) + [sg.Button('start', key='-start-J3-')],
-                spin('J4', 'J4', degrees[3], -120, 120, True) + [sg.Button('start', key='-start-J4-')],
-                spin('J5', 'J5', degrees[4], -120, 120, True) + [sg.Button('start', key='-start-J5-')],
-                spin('J6', 'J6', degrees[5], -120, 120, True) + [sg.Button('start', key='-start-J6-')]
+                spin2(f'J{i+1}', f'J{i+1}', servo_angles[i], degree(Angles[i]), -120, 120, True) + [sg.Button('start', key=f'-start-J{i+1}-')]
+                for i in range(6)
             ])
         ]
         ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Home'), sg.Button('Close')]
+        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Reset'), sg.Button('Close')]
     ]
 
     window = sg.Window('Servomotor', layout, disable_minimize=True, element_justification='c')
@@ -245,21 +298,41 @@ if __name__ == '__main__':
             except StopIteration:
                 moving = None
                 print('========== stop moving ==========')
-            
+
+                params['servo-angles'] = servo_angles
+                writeParams(params)
+
         jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
 
-        if event in jKeys:
-            ch = jKeys.index(event)
-            dst = float(values[event])
+        servo_angle_keys = [ f'J{i+1}-servo' for i in range(6) ]
 
-            moving = move_servo(ch, dst)
+        if event in servo_angle_keys:
+            ch = servo_angle_keys.index(event)
+            deg = float(values[event])
+
+            moving = move_servo(ch, deg)
+
+            window[jKeys[ch]].update(value=int(servo_to_angle(ch, deg)))
+
+        elif event in jKeys:
+            ch = jKeys.index(event)
+            deg = float(values[event])
+
+            moving = move_joint(ch, deg)
+
+            window[servo_angle_keys[ch]].update(value=int(angle_to_servo(ch, deg)))
 
         elif event in start_keys:
             moving = calibrate_angle(event)
 
+        elif event == 'Reset':
+            for ch in range(6):
+                set_servo_angle(ch, 90)
+                window[f'J{ch + 1}-servo'].update(value=90)
+
         elif event == sg.WIN_CLOSED or event == 'Close':
 
-            params['degrees'] = [int(degree(x)) for x in Angles]
+            params['servo-angles'] = servo_angles
             writeParams(params)
 
             closeCamera()
