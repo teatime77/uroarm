@@ -6,49 +6,185 @@ import json
 import cv2
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
-from util import nax, jKeys, servo_angle_keys, getGlb, radian, write_params, t_all, spin, spin2, degree, Vec2, sleep
-from infer import Inference
-from kinematics import move_linear_ok, move_xyz
+from util import nax, jKeys, read_params, servo_angle_keys, getGlb, radian, write_params, t_all, spin, spin2, degree, Vec2, sleep, loadParams
+from servo import j_range, init_servo, set_servo_angle, move_servo
+from kinematics import forward_kinematics, inverse_kinematics
 
-def showMark(values, frame, idx: int):
-    h_lo = float(values[f'-Hlo{idx + 1}-'])
-    h_hi = float(values[f'-Hhi{idx + 1}-'])
-    s_lo = float(values[f'-Slo{idx + 1}-'])
-    v_lo = float(values[f'-Vlo{idx + 1}-'])
+def angle_to_servo(ch, deg):
+    coef, intercept = servo_param[ch]
 
-    img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV) 
+    return coef * deg + intercept
 
-    h = img_hsv[:,:,0]
-    s = img_hsv[:,:,1]
-    v = img_hsv[:,:,2]
+def servo_to_angle(ch, deg):
+    coef, intercept = servo_param[ch]
 
-    h = (h.astype(np.int32) - 80) % 180
+    return (deg - intercept) / coef
 
-    mask = np.zeros(h.shape, dtype=np.uint8)
-    mask[ (h_lo <= h) & (h <= h_hi) & (s_lo <= s) & (v_lo <= v) ] = 255    
+def set_angle(ch : int, deg : float):
+    if not (j_range[ch][0] - 10 <= deg and deg <= j_range[ch][1] + 10):
 
-    contours, hierarchy = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        print(f'set angle err: ch:{ch} deg:{deg}')
+        assert False
 
-    if len(contours) != 0:
-        areas = [ cv2.contourArea(cont) for cont in contours ]
+    servo_deg = angle_to_servo(ch, deg)
 
-        max_index = areas.index( max(areas) )
-        cont = contours[max_index]
+    set_servo_angle(ch, servo_deg)
 
-        cv2.drawContours(frame, contours, max_index, (255,255,255), -1)
+def move_joint(ch, dst):
+    src = servo_to_angle(ch, servo_angles[ch])
 
-        M = cv2.moments(cont)
+    start_time = time.time()
+    while True:
+        total_time = t_all
+        t = (time.time() - start_time) / total_time
+        if 1 <= t:
+            break
 
-        if M['m00'] != 0:
-            cx = int(M['m10']/M['m00'])
-            cy = int(M['m01']/M['m00'])
+        deg = t * dst + (1 - t) * src
 
-            cv2.line(frame, (cx, cy - 10), (cx, cy + 10), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
-            cv2.line(frame, (cx - 10, cy), (cx + 10, cy), (0, 0, 0), thickness=2, lineType=cv2.LINE_8)
+        set_angle(ch, deg)
 
-            return Vec2(cx, -cy)
+        yield
 
-    return None
+def move_all_joints(dsts):
+    srcs = [ servo_to_angle(ch, servo_angles[ch]) for ch in range(nax) ]
+
+    start_time = time.time()
+    while True:
+        total_time = t_all
+        t = (time.time() - start_time) / total_time
+        if 1 <= t:
+            break
+
+        for ch in range(nax):
+
+            deg = t * dsts[ch] + (1 - t) * srcs[ch]
+
+            set_angle(ch, deg)
+
+        yield
+
+
+def move_linear(dst):
+    global move_linear_ok
+
+    move_linear_ok = True
+
+    src = forward_kinematics(Angles)
+
+    with open('ik.csv', 'w') as f:
+        f.write('time,J1,J2,J3,J4,J5,J6\n')
+        start_time = time.time()
+        while True:
+            t = time.time() - start_time
+            if t_all <= t:
+                break
+
+            r = t / t_all
+
+            pose = [ r * d + (1 - r) * s for s, d in zip(src, dst) ]
+
+            rads = inverse_kinematics(pose)
+            if rads is None:
+
+                move_linear_ok = False
+            else:
+                degs = degree(rads)
+                f.write(f'{t},{",".join(["%.1f" % x for x in degs])}\n')
+
+                for ch, deg in enumerate(degs):
+                    set_angle(ch, deg)
+
+            yield
+
+def move_xyz(x, y, z):
+    x_min = 100
+    x_max = 300
+
+    pitch_min = 90
+    pitch_max = 45
+
+    assert x_min <= x and x <= x_max
+
+    r = (x - x_min) / (x_max - x_min)
+
+    pitch = r * pitch_max + (1 - r) * pitch_min
+
+    pose = [ x, y, z, 0, radian(pitch)]
+
+    for _ in move_linear(pose):
+        yield
+
+def calibrate_angle(event):
+    global marker_deg
+
+    ch = start_keys.index(event)
+
+    min_deg, max_deg = j_range[ch]
+
+    dev_deg = servo_angles[ch]
+
+    cnt = 5
+    targets = []
+    dev_degs = []
+    for idx in range(cnt + 1):
+        target = min_deg + (max_deg - min_deg) * idx / cnt
+
+        print(f'idx:{idx} target:{target}')
+        ok_cnt = 0
+        for i in range(10000):
+            if marker_deg is None:
+                yield
+                continue
+
+            diff = target - marker_deg
+            marker_deg = None
+
+            if abs(diff) < 0.5:
+                ok_cnt += 1
+                if ok_cnt < 5:
+                    yield
+                    continue
+                else:
+                    targets.append(target)
+                    dev_degs.append(dev_deg)
+
+                    print(f'idx:{idx} done {i}')
+                    break
+
+            else:
+                ok_cnt = 0
+
+            if ch == 1:
+                dev_deg += - np.sign(diff) * 0.1
+            else:
+                dev_deg += np.sign(diff) * 0.1
+
+            set_servo_angle(ch, dev_deg)
+
+            for _ in sleep(0.05):
+                yield
+
+            yield
+
+    X = np.array(targets).reshape(-1, 1) 
+    Y = np.array(dev_degs)
+
+    reg = LinearRegression().fit(X, Y)
+    print('reg x', reg.coef_, reg.intercept_)
+    prd_x = reg.predict(X)
+
+    with open('data/angle.csv', 'w') as f:
+        f.write('target, dev, prd, reg\n')
+
+        for target, dev_deg, prd_deg in zip(targets, dev_degs, prd_x.tolist()):
+
+            f.write(f'{target}, {dev_deg}, {prd_deg}, {reg.coef_[0] * target + reg.intercept_}\n')
+
+    params['calibration']['servo'][ch] = [ reg.coef_[0], reg.intercept_ ]
+
+    write_params(params)
+
 
 def get_markers(window, values, frame):
     
@@ -74,39 +210,6 @@ def get_markers(window, values, frame):
     return frame, marker_deg
 
 
-def set_hsv_range(params, window, marker_idx, frame, center, radius):
-    img_hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.int32)
-
-    img_hsv[:,:,0] = (img_hsv[:,:,0] - 80) % 180
-
-    mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-    cv2.circle(mask, center, radius, (255,), thickness=-1) 
-
-    hsv = [ np.where(mask == 0, np.nan, img_hsv[:, :, i]) for i in range(3)]
-
-    h_avg, s_avg, v_avg = [ np.nanmean(x) for x in hsv ]
-    h_sdt, s_sdt, v_sdt = [ np.nanstd(x) for x in hsv ]
-
-    cv2.circle(frame, center, radius, (255,255,255), thickness=2) 
-
-    h_lo = round(h_avg - 3 * h_sdt)
-    h_hi = round(h_avg + 3 * h_sdt)
-    s_lo = round(s_avg - 3 * s_sdt)
-    v_lo = round(v_avg - 3 * v_sdt)
-
-    window[f'-Hlo{marker_idx + 1}-'].update(value=h_lo)
-    window[f'-Hhi{marker_idx + 1}-'].update(value=h_hi)
-    window[f'-Slo{marker_idx + 1}-'].update(value=s_lo)
-    window[f'-Vlo{marker_idx + 1}-'].update(value=v_lo)
-
-    params["markers"][marker_idx] = {
-        "h-lo": h_lo,
-        "h-hi": h_hi,
-        "s-lo": s_lo,
-        "v-lo": v_lo
-    }
-
-    return frame                   
 
 def fitRegression(eye_xy, hand_x, hand_y):
     X = np.array(eye_xy)
@@ -205,10 +308,12 @@ def mouse_callback(event,x,y,flags,param):
 
 if __name__ == '__main__':
 
-    params, servo_angles, Angles = loadParams()
-    marker1, marker2, marker3 = params['markers']
+    params = read_params()
 
-    init_servo(params, servo_angles, Angles)
+    servo_angles = params['servo-angles']
+    servo_param = params['calibration']['servo']
+
+    init_servo(params, servo_angles)
 
     initCamera()
 
@@ -216,40 +321,13 @@ if __name__ == '__main__':
         [
             sg.Column([
                 [
-                    sg.TabGroup([
-                        [
-                            sg.Tab('marker1', [
-                                spin('H lo', '-Hlo1-', marker1['h-lo'], 0, 180, False),
-                                spin('H hi', '-Hhi1-', marker1['h-hi'], 0, 180, False),
-                                spin('S lo', '-Slo1-', marker1['s-lo'], 0, 255, False),
-                                spin('V lo', '-Vlo1-', marker1['v-lo'], 0, 255, False)
-                            ])
-                            , 
-                            sg.Tab('marker2', [
-                                spin('H lo', '-Hlo2-', marker2['h-lo'], 0, 180, False),
-                                spin('H hi', '-Hhi2-', marker2['h-hi'], 0, 180, False),
-                                spin('S lo', '-Slo2-', marker2['s-lo'], 0, 255, False),
-                                spin('V lo', '-Vlo2-', marker2['v-lo'], 0, 255, False)
-                            ])
-                            , 
-                            sg.Tab('marker3', [
-                                spin('H lo', '-Hlo3-', marker3['h-lo'], 0, 180, False),
-                                spin('H hi', '-Hhi3-', marker3['h-hi'], 0, 180, False),
-                                spin('S lo', '-Slo3-', marker3['s-lo'], 0, 255, False),
-                                spin('V lo', '-Vlo3-', marker3['v-lo'], 0, 255, False)
-                            ])
-                        ]
-                    ], key='-markers-')
-                ]
-                ,
-                [
                     sg.Text('', key='-rotation-')
                 ]
             ])
             ,
             sg.Column([
-                spin2(f'J{i+1}', f'J{i+1}', servo_angles[i], degree(Angles[i]), -120, 120, True) + [sg.Button('start', key=f'-start-J{i+1}-')]
-                for i in range(nax)
+                spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 120, True) + [sg.Button('start', key=f'-start-J{ch+1}-')]
+                for ch, deg in enumerate(servo_angles)
             ])
         ]
         ,
@@ -319,14 +397,6 @@ if __name__ == '__main__':
                 last_capture = time.time()
 
                 frame = getCameraFrame()
-
-                if radius is None:
-                    frame, marker_deg = get_markers(window, values, frame)
-
-                else:
-                    marker_idx = [ 'marker1', 'marker2', 'marker3' ].index( window['-markers-'].get() )
-
-                    frame = set_hsv_range(params, window, marker_idx, frame, down_pos, radius)
 
                 if values['-show-grid-']:
                     draw_grid(frame)

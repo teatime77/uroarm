@@ -6,8 +6,6 @@ import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from util import nax, jKeys, radian, write_params, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p
-from servo import init_servo, set_angle, move_joint, move_servo, servo_to_angle, angle_to_servo, sleep
-from infer import Inference
 
 L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 162 ]
 
@@ -105,53 +103,3 @@ def inverse_kinematics(pose):
     # print("J2:%.1f  J3:%.1f  J4:%.1f " % (degree(ts[1]), degree(ts[2]), degree(ts[3])))
 
     return ts
-
-def move_linear(dst):
-    global move_linear_ok
-
-    move_linear_ok = True
-
-    src = forward_kinematics(Angles)
-
-    with open('ik.csv', 'w') as f:
-        f.write('time,J1,J2,J3,J4,J5,J6\n')
-        start_time = time.time()
-        while True:
-            t = time.time() - start_time
-            if t_all <= t:
-                break
-
-            r = t / t_all
-
-            pose = [ r * d + (1 - r) * s for s, d in zip(src, dst) ]
-
-            rads = inverse_kinematics(pose)
-            if rads is None:
-
-                move_linear_ok = False
-            else:
-                degs = degree(rads)
-                f.write(f'{t},{",".join(["%.1f" % x for x in degs])}\n')
-
-                for ch, deg in enumerate(degs):
-                    set_angle(ch, deg)
-
-            yield
-
-def move_xyz(x, y, z):
-    x_min = 100
-    x_max = 300
-
-    pitch_min = 90
-    pitch_max = 45
-
-    assert x_min <= x and x <= x_max
-
-    r = (x - x_min) / (x_max - x_min)
-
-    pitch = r * pitch_max + (1 - r) * pitch_min
-
-    pose = [ x, y, z, 0, radian(pitch)]
-
-    for _ in move_linear(pose):
-        yield
