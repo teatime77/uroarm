@@ -1,11 +1,15 @@
 import math
+import time
 import json
 import numpy as np
 import PySimpleGUI as sg
 
+nax = 6
 t_all = 2
 
 jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
+
+servo_angle_keys = [ f'J{i+1}-servo' for i in range(nax) ]
 
 class Vec2:
     def __init__(self, x, y):
@@ -60,6 +64,11 @@ theGlb = Glb()
 def getGlb():
     return theGlb
 
+def sleep(sec):
+    start_time = time.time()
+    while time.time() - start_time < sec:
+        yield
+
 def radian(d):
     if type(d) is list:
         return [ x * math.pi / 180.0 for x in d ]
@@ -79,13 +88,18 @@ def arctan2p(y, x):
     else:
         return 2 * np.pi + rad
 
-def writeParams(params):
+def write_params(params):
     with open('data/arm.json', 'w') as f:
         json.dump(params, f, indent=4)
 
-def loadParams():
+def read_params():
     with open('data/arm.json', 'r') as f:
         params = json.load(f)
+
+    return params
+
+def loadParams():
+    params = read_params()
 
     servo_angles = params['servo-angles']
 

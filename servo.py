@@ -4,7 +4,7 @@ import math
 import serial
 import cv2
 import PySimpleGUI as sg
-from util import radian, writeParams, loadParams, spin, spin2, degree, t_all
+from util import nax, servo_angle_keys, radian, write_params, loadParams, spin, spin2, degree, t_all, sleep
 from camera import initCamera, getCameraFrame, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from calibration import Calibrate, get_markers, set_hsv_range
 import numpy as np
@@ -84,18 +84,14 @@ def set_servo_angle(ch : int, deg : float):
         print("read", ret)
 
 def set_angle(ch : int, deg : float):
+    if not (j_range[ch][0] - 10 <= deg and deg <= j_range[ch][1] + 10):
+
+        print(f'set angle err: ch:{ch} deg:{deg}')
+        assert False
+
     servo_deg = angle_to_servo(ch, deg)
 
     set_servo_angle(ch, servo_deg)
-
-def draw_grid(frame):
-    h, w, _ = frame.shape
-
-    for y in range(0, h, h // 20):
-        cv2.line(frame, (0, y), (w, y), (255, 0, 0))
-
-    for x in range(0, w, w // 20):
-        cv2.line(frame, (x, 0), (x, h), (255, 0, 0))
 
 def move_servo(ch, dst):
     src = servo_angles[ch]
@@ -129,11 +125,22 @@ def move_joint(ch, dst):
 
         yield
 
+def move_all_joints(dsts):
+    srcs = [ servo_to_angle(ch, servo_angles[ch]) for ch in range(nax) ]
 
-
-def sleep(sec):
     start_time = time.time()
-    while time.time() - start_time < sec:
+    while True:
+        total_time = t_all
+        t = (time.time() - start_time) / total_time
+        if 1 <= t:
+            break
+
+        for ch in range(nax):
+
+            deg = t * dsts[ch] + (1 - t) * srcs[ch]
+
+            set_angle(ch, deg)
+
         yield
 
 
@@ -205,87 +212,20 @@ def calibrate_angle(event):
 
     params['calibration']['servo'][ch] = [ reg.coef_[0], reg.intercept_ ]
 
-    writeParams(params)
-
-down_pos = None
-radius = None
-
-def printCoor(event,x,y,flags,param):
-    global down_pos, radius
-
-    if event == cv2.EVENT_LBUTTONDOWN:
-        print('down', x, y)
-        down_pos = (x, y)
-
-    elif event == cv2.EVENT_LBUTTONUP:
-        print('up'  , x, y)
-        down_pos = None
-        radius   = None
-
-    elif event == cv2.EVENT_MOUSEMOVE and down_pos is not None:
-        dx = down_pos[0] - x
-        dy = down_pos[1] - y
-        radius = int(math.sqrt(dx * dx + dy * dy))
+    write_params(params)
 
 if __name__ == '__main__':
 
     params, servo_angles, Angles = loadParams()
-    marker1, marker2, marker3 = params['markers']
 
     init_servo(params, servo_angles, Angles)
 
-    initCamera()
-
     layout = [
-        [
-            sg.Column([
-                [
-                    sg.TabGroup([
-                        [
-                            sg.Tab('marker1', [
-                                spin('H lo', '-Hlo1-', marker1['h-lo'], 0, 180, False),
-                                spin('H hi', '-Hhi1-', marker1['h-hi'], 0, 180, False),
-                                spin('S lo', '-Slo1-', marker1['s-lo'], 0, 255, False),
-                                spin('V lo', '-Vlo1-', marker1['v-lo'], 0, 255, False)
-                            ])
-                            , 
-                            sg.Tab('marker2', [
-                                spin('H lo', '-Hlo2-', marker2['h-lo'], 0, 180, False),
-                                spin('H hi', '-Hhi2-', marker2['h-hi'], 0, 180, False),
-                                spin('S lo', '-Slo2-', marker2['s-lo'], 0, 255, False),
-                                spin('V lo', '-Vlo2-', marker2['v-lo'], 0, 255, False)
-                            ])
-                            , 
-                            sg.Tab('marker3', [
-                                spin('H lo', '-Hlo3-', marker3['h-lo'], 0, 180, False),
-                                spin('H hi', '-Hhi3-', marker3['h-hi'], 0, 180, False),
-                                spin('S lo', '-Slo3-', marker3['s-lo'], 0, 255, False),
-                                spin('V lo', '-Vlo3-', marker3['v-lo'], 0, 255, False)
-                            ])
-                        ]
-                    ], key='-markers-')
-                ]
-                ,
-                [
-                    sg.Text('', key='-rotation-')
-                ]
-            ])
-            ,
-            sg.Column([
-                spin2(f'J{i+1}', f'J{i+1}', servo_angles[i], degree(Angles[i]), -120, 120, True) + [sg.Button('start', key=f'-start-J{i+1}-')]
-                for i in range(6)
-            ])
-        ]
-        ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Reset'), sg.Button('Close')]
+        [ sg.Button('Close') ]
     ]
 
     window = sg.Window('Servomotor', layout, disable_minimize=True, element_justification='c')
 
-    start_keys = [ f'-start-J{i+1}-' for i in range(6) ]
-
-    last_capture = time.time()
-    is_first = True
     moving = None
 
     while True:
@@ -300,11 +240,7 @@ if __name__ == '__main__':
                 print('========== stop moving ==========')
 
                 params['servo-angles'] = servo_angles
-                writeParams(params)
-
-        jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
-
-        servo_angle_keys = [ f'J{i+1}-servo' for i in range(6) ]
+                write_params(params)
 
         if event in servo_angle_keys:
             ch = servo_angle_keys.index(event)
@@ -312,59 +248,12 @@ if __name__ == '__main__':
 
             moving = move_servo(ch, deg)
 
-            window[jKeys[ch]].update(value=int(servo_to_angle(ch, deg)))
-
-        elif event in jKeys:
-            ch = jKeys.index(event)
-            deg = float(values[event])
-
-            moving = move_joint(ch, deg)
-
-            window[servo_angle_keys[ch]].update(value=int(angle_to_servo(ch, deg)))
-
-        elif event in start_keys:
-            moving = calibrate_angle(event)
-
-        elif event == 'Reset':
-            for ch in range(6):
-                set_servo_angle(ch, 90)
-                window[f'J{ch + 1}-servo'].update(value=90)
-
         elif event == sg.WIN_CLOSED or event == 'Close':
 
             params['servo-angles'] = servo_angles
-            writeParams(params)
+            write_params(params)
 
-            closeCamera()
             break
-
-        elif event == "Calibrate":
-            moving = Calibrate(params, values)        
-
-        else:
-            if 0.1 < time.time() - last_capture:
-                last_capture = time.time()
-
-                frame = getCameraFrame()
-
-                if radius is None:
-                    frame, marker_deg = get_markers(window, values, frame)
-
-                else:
-                    marker_idx = [ 'marker1', 'marker2', 'marker3' ].index( window['-markers-'].get() )
-
-                    frame = set_hsv_range(params, window, marker_idx, frame, down_pos, radius)
-
-                if values['-show-grid-']:
-                    draw_grid(frame)
-
-                cv2.imshow("camera", frame)
-
-                if is_first:
-
-                    is_first = False
-                
-                    cv2.setMouseCallback('camera', printCoor)
 
     window.close()
 
