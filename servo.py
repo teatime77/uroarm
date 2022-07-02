@@ -8,13 +8,22 @@ from util import nax, read_params, servo_angle_keys, radian, write_params, loadP
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
+# j_range = [
+#     [  -80,  80 ],
+#     [ -100, -30 ],
+#     [   50, 120 ],
+#     [   25,  70 ],
+#     [  -90,  90 ],
+#     [    0,  90 ]
+# ]
+
 j_range = [
-    [  -80,  80 ],
-    [ -100, -30 ],
-    [   50, 120 ],
-    [   25,  70 ],
-    [  -90,  90 ],
-    [    0,  90 ]
+    [  -80,   80 ],
+    [  -60,   10 ],
+    [ -120,  -50 ],
+    [  -70,  -25 ],
+    [  -90,   90 ],
+    [    0,   90 ]
 ]
 
 def init_servo_nano(params):

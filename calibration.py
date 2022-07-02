@@ -7,8 +7,9 @@ import cv2
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
 from util import nax, jKeys, read_params, servo_angle_keys, getGlb, radian, write_params, t_all, spin, spin2, degree, Vec2, sleep, loadParams
-from servo import j_range, init_servo, set_servo_angle, move_servo
+from servo import j_range, init_servo, set_servo_angle, move_servo, move_all_servo
 from kinematics import forward_kinematics, inverse_kinematics
+from marker import init_markers, detect_markers
 
 def angle_to_servo(ch, deg):
     coef, intercept = servo_param[ch]
@@ -116,8 +117,6 @@ def move_xyz(x, y, z):
         yield
 
 def calibrate_angle(event):
-    global marker_deg
-
     ch = start_keys.index(event)
 
     min_deg, max_deg = j_range[ch]
@@ -133,12 +132,12 @@ def calibrate_angle(event):
         print(f'idx:{idx} target:{target}')
         ok_cnt = 0
         for i in range(10000):
-            if marker_deg is None:
+            if np.isnan(angles2[ch]):
                 yield
                 continue
 
-            diff = target - marker_deg
-            marker_deg = None
+            diff = target - angles2[ch]
+            angles2[ch] = np.nan
 
             if abs(diff) < 0.5:
                 ok_cnt += 1
@@ -155,7 +154,7 @@ def calibrate_angle(event):
             else:
                 ok_cnt = 0
 
-            if ch == 1:
+            if ch == 2 or ch == 3:
                 dev_deg += - np.sign(diff) * 0.1
             else:
                 dev_deg += np.sign(diff) * 0.1
@@ -184,31 +183,6 @@ def calibrate_angle(event):
     params['calibration']['servo'][ch] = [ reg.coef_[0], reg.intercept_ ]
 
     write_params(params)
-
-
-def get_markers(window, values, frame):
-    
-    centers = [ showMark(values, frame, i) for i in range(3) ]
-
-    if all(x is not None for x in centers):
-        v1 = (centers[1] - centers[0]).unit()
-        v2 = (centers[2] - centers[1]).unit()
-
-        ip = max(-1, min(1, v1.dot(v2)))
-        rad = math.acos(ip)
-        assert 0 <= rad and rad <= math.pi
-
-        marker_deg = degree(rad)
-        if v1.cross(v2) < 0:
-            marker_deg = -marker_deg
-
-        window['-rotation-'].update(value='%.1f' % marker_deg)
-    else:
-        marker_deg = None
-        window['-rotation-'].update(value='')
-
-    return frame, marker_deg
-
 
 
 def fitRegression(eye_xy, hand_x, hand_y):
@@ -306,17 +280,37 @@ def mouse_callback(event,x,y,flags,param):
         dy = down_pos[1] - y
         radius = int(math.sqrt(dx * dx + dy * dy))
 
+def angle_from_3points(points):
+    assert len(points) == 3
+
+    v1 = (points[1] - points[0]).unit()
+    v2 = (points[2] - points[1]).unit()
+
+    ip = max(-1, min(1, v1.dot(v2)))
+    rad = math.acos(ip)
+    assert 0 <= rad and rad <= math.pi
+
+    marker_deg = degree(rad)
+    if v1.cross(v2) < 0:
+        marker_deg = -marker_deg
+
+    return marker_deg
+
+
+
 if __name__ == '__main__':
 
     params = read_params()
 
     servo_angles = params['servo-angles']
     servo_param = params['calibration']['servo']
+    marker_ids = params['marker-ids']
 
     init_servo(params, servo_angles)
-
+    init_markers(params)
     initCamera()
 
+    marker_table = np.array([[0] * 6] * 10, dtype=np.float32)
     layout = [
         [
             sg.Column([
@@ -326,15 +320,22 @@ if __name__ == '__main__':
             ])
             ,
             sg.Column([
-                spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 120, True) + [sg.Button('start', key=f'-start-J{ch+1}-')]
+                spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 120, True) + [ 
+                    sg.Text('', key=f'-yaw-{ch+1}-'), 
+                    sg.Text('', key=f'-angle-{ch+1}-'), 
+                    sg.Text('', key=f'-vec-{ch+1}-'), 
+                    sg.Button('start', key=f'-start-J{ch+1}-')
+                ]
                 for ch, deg in enumerate(servo_angles)
             ])
+            ,
+            sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'yaw', 'angle1', 'angle2'], auto_size_columns=False, col_widths=[6]*6, num_rows=10, key='-marker-table-')
         ]
         ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Reset'), sg.Button('Close')]
+        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Close')]
     ]
 
-    window = sg.Window('calibration', layout, disable_minimize=True, element_justification='c')
+    window = sg.Window('calibration', layout, element_justification='c') # disable_minimize=True
 
     start_keys = [ f'-start-J{i+1}-' for i in range(nax) ]
 
@@ -376,10 +377,11 @@ if __name__ == '__main__':
         elif event in start_keys:
             moving = calibrate_angle(event)
 
-        elif event == 'Reset':
-            for ch in range(nax):
-                set_servo_angle(ch, 90)
-                window[f'J{ch + 1}-servo'].update(value=90)
+        elif event == 'Ready':
+            for key, deg in zip(servo_angle_keys, params['ready']):
+                window[key].update(value=deg)
+
+            moving = move_all_servo(params['ready'])
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
@@ -398,10 +400,42 @@ if __name__ == '__main__':
 
                 frame = getCameraFrame()
 
+                frame, vecs = detect_markers(marker_ids, frame)
+
+                for ch, vec in enumerate(vecs):                    
+                    if vec is None:
+
+                        marker_table[ch, :3] = [np.nan] * 3
+                    else:
+
+                        ivec = [int(x) for x in vec]
+
+                        marker_table[ch, :3] = ivec[:3]
+
+                yaws = [np.nan if vec is None else vec[5] for vec in vecs]
+
+                angles1 = [np.nan] * len(marker_ids)
+                for i, (ch1, ch2) in enumerate([ [0,1], [1,3], [3, 4] ]):
+                    angles1[i+1] = np.round(yaws[ch2] - yaws[ch1])
+
+                angles2 = [np.nan] * len(marker_ids)
+                for ch in range(1, len(vecs) - 1):
+                    if all(v is not None for v in vecs[ch-1:ch+2] ):
+                        points = [ Vec2(v[0], v[1]) for v in vecs[ch-1:ch+2] ]
+                        angles2[ch] = int(angle_from_3points(points))
+
+                marker_table[:, 3] = yaws
+                marker_table[:, 4] = angles1
+                marker_table[:, 5] = angles2
+                window['-marker-table-'].update(values=marker_table.tolist())
+
+
                 if values['-show-grid-']:
                     draw_grid(frame)
 
                 cv2.imshow("camera", frame)
+
+                window.refresh()
 
                 if is_first:
 
