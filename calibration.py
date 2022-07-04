@@ -1,3 +1,4 @@
+import sys
 import time
 import math
 import numpy as np
@@ -103,7 +104,8 @@ def move_xyz(x, y, z):
 
     pitch = r * pitch_max + (1 - r) * pitch_min
 
-    pose = [ x, y, z, 0, radian(pitch)]
+    yaw = - math.atan2(y, x)
+    pose = [ x, y, z, yaw, radian(pitch)]
 
     for _ in move_linear(pose):
         yield
@@ -155,13 +157,13 @@ def fitRegression(eye_xy, hand_x, hand_y):
 
 
 
-def Calibrate(params, values):
+def Calibrate():
     eye_xy = []
     hand_x = []
     hand_y = []
 
-    for x in [150, 200, 250, 300]:
-        for y in [-50, 0, 50]:
+    for y in [-50, 0, 50]:
+        for x in [150, 200, 250, 300, 150]:
             print(f'start move x:{x} y:{y}')
             
             for _ in move_xyz(x, y, 30):
@@ -175,30 +177,20 @@ def Calibrate(params, values):
             for _ in sleep(4):
                 yield
 
-            centers = [ showMark(values, frame, i) for i in range(2) ]
 
-            (rx, ry), (bx, by) = get_markers(values)
+            # eye_xy.append([ camX(), camY() ])
+            # hand_x.append(x)
+            # hand_y.append(y)
 
-            if bx is not None and rx is not None:
-                CamX = 0.5 * (bx + rx)
-                CamY = 0.5 * (by + ry)
+    # params['calibration'] = {
+    #     'eye-xy' : eye_xy,
+    #     'hand-x' : hand_x,
+    #     'hand-y' : hand_y
+    # }
 
+    # write_params(params)
 
-            print(f'hand eye x:{x} y:{y} cx:{camX()} cy:{camY()}')
-
-            eye_xy.append([ camX(), camY() ])
-            hand_x.append(x)
-            hand_y.append(y)
-
-    params['calibration'] = {
-        'eye-xy' : eye_xy,
-        'hand-x' : hand_x,
-        'hand-y' : hand_y
-    }
-
-    write_params(params)
-
-    fitRegression(eye_xy, hand_x, hand_y)
+    # fitRegression(eye_xy, hand_x, hand_y)
 
 
 def draw_grid(frame):
@@ -290,6 +282,15 @@ if __name__ == '__main__':
     init_markers(params)
     initCamera()
 
+
+    if len(sys.argv) == 2:
+        from infer import Inference
+
+        inference = Inference()
+
+    else:
+        inference = None
+
     marker_table = np.array([[0] * 6] * 10, dtype=np.float32)
     layout = [
         [
@@ -323,7 +324,7 @@ if __name__ == '__main__':
             sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'yaw', 'angle1', 'angle2'], auto_size_columns=False, col_widths=[6]*6, num_rows=10, key='-marker-table-')
         ]
         ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Close')]
+        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Calibrate'), sg.Button('Close')]
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -342,6 +343,7 @@ if __name__ == '__main__':
         if moving is not None:
             try:
                 moving.__next__()
+                continue
 
             except StopIteration:
                 moving = None
@@ -394,13 +396,17 @@ if __name__ == '__main__':
             break
 
         elif event == "Calibrate":
-            moving = Calibrate(params, values)        
+            moving = Calibrate()        
 
         else:
             if 0.1 < time.time() - last_capture:
                 last_capture = time.time()
 
                 frame = getCameraFrame()
+
+                cx, cy = np.nan, np.nan
+                if inference is not None:
+                    cx, cy = inference.get(frame)
 
                 frame, vecs = detect_markers(marker_ids, frame)
 
@@ -438,6 +444,10 @@ if __name__ == '__main__':
 
                 if values['-show-grid-']:
                     draw_grid(frame)
+
+
+                if not np.isnan(cx):
+                    cv2.circle(frame, (int(cx), int(cy)), 10, (255,255,255), -1)
 
                 cv2.imshow("camera", frame)
 

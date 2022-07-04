@@ -128,17 +128,24 @@ class Inference():
             return cx, cy
 
         except queue.Empty:
-            return None
+            return np.nan, np.nan
 
-    def get(self, bmp):
+    def get_OLD(self, bmp):
         self.put(bmp)
         while True:
-            ret = self.get_nowait()
-            if ret is not None:
-                return ret
+            cx, cy = self.get_nowait()
+            if not np.isnan(cx):
+                return cx, cy
 
             time.sleep(0.1)
     
+    def get(self, bmp):
+        if self.img_que.empty():
+            self.put(bmp)
+
+        return self.get_nowait()
+       
+
 
 if __name__ == '__main__':
     freeze_support()
