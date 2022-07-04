@@ -16,6 +16,9 @@ class Vec2:
         self.x = x
         self.y = y
 
+    def __str__(self):
+        return f'(x:{self.x:.1f} y:{self.y:.1f})'
+
     def len(self):
         return math.sqrt(self.x * self.x + self.y * self.y )
 
@@ -49,6 +52,49 @@ class Vec2:
 
     def __sub__(self, other):
         return Vec2(self.x - other.x, self.y - other.y)
+
+
+class Vec3:
+    def __init__(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def __str__(self):
+        return f'(x:{self.x:.1f} y:{self.y:.1f} z:{self.z:.1f})'
+
+    def len(self):
+        return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z )
+
+    def unit(self):
+        l = self.len()
+
+        assert(l != 0)
+
+        return Vec3(self.x / l, self.y / l, self.z / l)
+
+    def dot(self, v):
+        return self.x * v.x + self.y * v.y + self.z * v.z
+
+    def cross(self, v):
+        return Vec3(self.y * v.z - self.z * v.y, self.z * v.x - self.x * v.z, self.x * v.y - self.y * v.x)
+
+    def __add__(self, other):
+        return Vec3(self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __sub__(self, other):
+        return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+
+
+
+
+
+
+
+
+
+
+
 
 class Glb:
     def __init__(self):
@@ -121,3 +167,11 @@ def spin2(label, key, val1, val2, min_val, max_val, bind_return_key = True):
         sg.Spin(list(range(min_val, max_val + 1)), initial_value=int(val1), size=(5, 1), key=key+'-servo', enable_events=not bind_return_key, bind_return_key=bind_return_key ),
         sg.Spin(list(range(min_val, max_val + 1)), initial_value=int(val2), size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
     ]
+
+
+def show_pose(window, pose):
+    for k, p in zip(["X", "Y", "Z"], pose[:3]):
+        window[k].Update(int(round(p)))
+        
+    for k, p in zip(["R1", "R2"], pose[3:]):
+        window[k].Update(int(round(degree(p))))

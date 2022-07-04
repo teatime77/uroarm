@@ -8,16 +8,16 @@ from util import nax, read_params, servo_angle_keys, radian, write_params, loadP
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
-# j_range = [
-#     [  -80,  80 ],
-#     [ -100, -30 ],
-#     [   50, 120 ],
-#     [   25,  70 ],
-#     [  -90,  90 ],
-#     [    0,  90 ]
-# ]
+j_range1 = [
+    [  -80,  80 ],
+    [ -100, -30 ],
+    [   50, 120 ],
+    [   25,  70 ],
+    [  -90,  90 ],
+    [    0,  90 ]
+]
 
-j_range = [
+j_range2 = [
     [  -80,   80 ],
     [  -60,   10 ],
     [ -120,  -50 ],
@@ -25,6 +25,16 @@ j_range = [
     [  -90,   90 ],
     [    0,   90 ]
 ]
+
+j_range = [
+    [  -20,   20 ],
+    [  -20,   20 ],
+    [  -20,   20 ],
+    [  -20,   20 ],
+    [  -20,   20 ],
+    [  -20,   20 ]
+]
+
 
 def init_servo_nano(params):
     global pwm
@@ -52,12 +62,23 @@ def init_servo(params, servo_angles_arg):
     servo_angles = servo_angles_arg
 
     com_port = params['COM'] 
+    servo_param = params['calibration']['servo']
 
     try:
         ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
     except serial.serialutil.SerialException: 
         print(f'指定されたシリアルポートがありません。{com_port}')
         sys.exit(0)
+
+def angle_to_servo(ch, deg):
+    coef, intercept = servo_param[ch]
+
+    return coef * deg + intercept
+
+def servo_to_angle(ch, deg):
+    coef, intercept = servo_param[ch]
+
+    return (deg - intercept) / coef
 
 def set_servo_angle(ch : int, deg : float):
     servo_angles[ch] = deg

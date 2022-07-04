@@ -6,7 +6,7 @@ import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from kinematics import forward_kinematics, inverse_kinematics, move_linear, move_xyz
-from util import nax, jKeys, radian, write_params, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p, sleep
+from util import nax, jKeys, radian, write_params, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p, sleep, show_pose
 from servo import init_servo, set_angle, move_joint, move_servo, servo_to_angle, angle_to_servo, move_all_joints
 from infer import Inference
     
@@ -37,13 +37,6 @@ def showJoints(ts):
         key = jointKey(i)
         window[key].Update(int(round(degree(j))))
 
-
-def showPos(pos):
-    for k, p in zip(["X", "Y", "Z"], pos[:3]):
-        window[k].Update(int(round(p)))
-        
-    for k, p in zip(["R1", "R2"], pos[3:]):
-        window[k].Update(int(round(degree(p))))
 
 
 def openHand():
@@ -124,8 +117,8 @@ if __name__ == '__main__':
     # Create the Window
     window = sg.Window('Robot Control', layout, finalize=True)
 
-    pos = forward_kinematics(Angles)
-    showPos(pos)
+    pose = forward_kinematics(servo_angles)
+    show_pose(window, pose)
 
     servo_angle_keys = [ f'J{i+1}-servo' for i in range(nax) ]
 
@@ -143,8 +136,8 @@ if __name__ == '__main__':
                 params['servo-angles'] = servo_angles
                 write_params(params)
 
-                pos = forward_kinematics(Angles)
-                showPos(pos)
+                pose = forward_kinematics(servo_angles)
+                show_pose(window, pose)
 
                 print("stop moving")
 
@@ -168,12 +161,12 @@ if __name__ == '__main__':
             # 目標ポーズ
 
             pose = getPose()
-            rads = inverse_kinematics(pose)
-            if rads is not None:
+            rad5s = inverse_kinematics(pose)
+            if rad5s is not None:
 
-                degs = degree(rads)
+                deg5s = degree(rad5s)
 
-                for ch, deg in enumerate(degs):
+                for ch, deg in enumerate(deg5s):
 
                     window[jKeys[ch]].update(value=int(deg))
                     window[servo_angle_keys[ch]].update(value=int(angle_to_servo(ch, deg)))
