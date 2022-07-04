@@ -231,22 +231,6 @@ def mouse_callback(event,x,y,flags,param):
         dy = down_pos[1] - y
         radius = int(math.sqrt(dx * dx + dy * dy))
 
-def angle_from_3points(points):
-    assert len(points) == 3
-
-    v1 = (points[1] - points[0]).unit()
-    v2 = (points[2] - points[1]).unit()
-
-    ip = max(-1, min(1, v1.dot(v2)))
-    rad = math.acos(ip)
-    assert 0 <= rad and rad <= math.pi
-
-    marker_deg = degree(rad)
-    if v1.cross(v2) < 0:
-        marker_deg = -marker_deg
-
-    return marker_deg
-
 def show_next_pose(ch, servo_deg):
     degs = list(servo_angles)
     degs[ch] = servo_deg
@@ -255,7 +239,7 @@ def show_next_pose(ch, servo_deg):
     show_pose(window, pose)
 
 def hand_eye_calibration(marker_table):
-    if(np.isnan(marker_table[6:, 0]).any()):
+    if(np.isnan(marker_table[:, :3]).any()):
         return np.nan
 
     marker_table[:, 2] = - marker_table[:, 2]
@@ -291,7 +275,7 @@ if __name__ == '__main__':
     else:
         inference = None
 
-    marker_table = np.array([[0] * 6] * 10, dtype=np.float32)
+    marker_table = np.array([[0] * 6] * len(marker_ids), dtype=np.float32)
     layout = [
         [
             sg.Column([
@@ -321,7 +305,7 @@ if __name__ == '__main__':
                 spin('R2', 'R2', 0,   0, 120 )
             ])
             ,
-            sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'yaw', 'angle1', 'angle2'], auto_size_columns=False, col_widths=[6]*6, num_rows=10, key='-marker-table-')
+            sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'yaw', 'angle1', 'angle2'], auto_size_columns=False, col_widths=[6]*6, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
         [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Calibrate'), sg.Button('Close')]
@@ -420,23 +404,7 @@ if __name__ == '__main__':
 
                         marker_table[ch, :3] = ivec[:3]
 
-                yaws = [np.nan if vec is None else vec[5] for vec in vecs]
-
-                angles1 = [np.nan] * len(marker_ids)
-                for i, (ch1, ch2) in enumerate([ [0,1], [1,3], [3, 4] ]):
-                    angles1[i+1] = np.round(yaws[ch2] - yaws[ch1])
-
-                angles2 = [np.nan] * len(marker_ids)
-                for ch in range(1, len(vecs) - 1):
-                    if all(v is not None for v in vecs[ch-1:ch+2] ):
-                        points = [ Vec2(v[0], v[1]) for v in vecs[ch-1:ch+2] ]
-                        angles2[ch] = int(angle_from_3points(points))
-
-                marker_table[:, 3] = yaws
-                marker_table[:, 4] = angles1
-                marker_table[:, 5] = angles2
-
-                h = hand_eye_calibration(marker_table[6:, :])
+                h = hand_eye_calibration(marker_table)
                 window['-tcp-height-'].update(value=f'height:{h:.1f}')
 
                 window['-marker-table-'].update(values=marker_table.tolist())
