@@ -9,6 +9,8 @@ t_all = 2
 
 jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
 
+pose_keys = [ "X", "Y", "Z", "R1", "R2" ]
+
 servo_angle_keys = [ f'J{i+1}-servo' for i in range(nax) ]
 
 class Vec2:
@@ -144,15 +146,6 @@ def read_params():
 
     return params
 
-def loadParams():
-    params = read_params()
-
-    servo_angles = params['servo-angles']
-
-    Angles  = [ radian((deg - b) / a) for deg, (a, b) in zip(servo_angles, params['calibration']['servo']) ]
-
-    return params, servo_angles, Angles
-
 def spin(label, key, val, min_val, max_val, bind_return_key = True):
 
     return [ 
@@ -168,6 +161,13 @@ def spin2(label, key, val1, val2, min_val, max_val, bind_return_key = True):
         sg.Spin(list(range(min_val, max_val + 1)), initial_value=int(val2), size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
     ]
 
+
+def get_pose(values):
+    dst = [ float(values[k]) for k in pose_keys ]
+    dst[3] = radian(dst[3])
+    dst[4] = radian(dst[4])
+
+    return dst
 
 def show_pose(window, pose):
     for k, p in zip(["X", "Y", "Z"], pose[:3]):

@@ -5,7 +5,7 @@ import PySimpleGUI as sg
 import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import nax, jKeys, radian, write_params, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p
+from util import nax, jKeys, radian, write_params, t_all, spin, spin2, degree, Vec2, arctan2p
 from servo import servo_to_angle
 
 L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 162 ]

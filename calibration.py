@@ -6,11 +6,12 @@ import json
 import cv2
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
-from util import nax, jKeys, read_params, servo_angle_keys, getGlb, radian, write_params, t_all, spin, spin2, degree, Vec2, Vec3, sleep, show_pose
-from servo import j_range, init_servo, set_servo_angle, move_servo, move_all_servo, angle_to_servo, servo_to_angle
+from util import nax, jKeys, pose_keys, read_params, servo_angle_keys, getGlb, radian, write_params, t_all, spin, spin2, degree, Vec2, Vec3, sleep, get_pose, show_pose
+from servo import j_range, init_servo, set_servo_angle, move_servo, move_all_servo, angle_to_servo, servo_to_angle, set_servo_param, servo_angles
 from kinematics import forward_kinematics, inverse_kinematics
 from marker import init_markers, detect_markers
 
+rect_pose = [0, ]
 def set_angle(ch : int, deg : float):
     if not (j_range[ch][0] - 10 <= deg and deg <= j_range[ch][1] + 10):
 
@@ -108,74 +109,29 @@ def move_xyz(x, y, z):
         yield
 
 def calibrate_angle(event):
-    ch = start_keys.index(event)
+    ch, idx = [ int(x) for x in event.split('-')[3:5] ]
 
-    # min_deg, max_deg = j_range[ch]
-    min_deg, max_deg = -30, 10
+    datum_servo_angles[ch, idx] = servo_angles[ch]
+    window[event].update(button_color=('white', 'blue'))
 
-    dev_deg = servo_angles[ch]
+    servo1, servo2 = datum_servo_angles[ch, :]
+    if np.isnan(servo1) or np.isnan(servo2):
+        return
 
-    cnt = 5
-    targets = []
-    dev_degs = []
-    for idx in range(cnt + 1):
-        target = min_deg + (max_deg - min_deg) * idx / cnt
+    angle1, angle2 = datum_angles[ch]
 
-        print(f'idx:{idx} target:{target}')
-        ok_cnt = 0
-        for i in range(10000):
-            if np.isnan(angles2[ch]):
-                yield
-                continue
+    # scale * angle1 + offset = servo1
+    # scale * angle2 + offset = servo2
 
-            diff = target - angles2[ch]
-            angles2[ch] = np.nan
+    offset = (angle2 * servo1 - angle1 * servo2) / (angle2 - angle1)
+    if abs(angle1) < abs(angle2):
+        scale = (servo2 - offset) / angle2
+    else:
+        scale = (servo1 - offset) / angle1
 
-            if abs(diff) < 0.5:
-                ok_cnt += 1
-                if ok_cnt < 5:
-                    yield
-                    continue
-                else:
-                    targets.append(target)
-                    dev_degs.append(dev_deg)
+    set_servo_param(ch, scale, offset)
 
-                    print(f'idx:{idx} done {i}')
-                    break
-
-            else:
-                ok_cnt = 0
-
-            if ch == 2 or ch == 3:
-                dev_deg += - np.sign(diff) * 0.1
-            else:
-                dev_deg += np.sign(diff) * 0.1
-
-            set_servo_angle(ch, dev_deg)
-
-            for _ in sleep(0.05):
-                yield
-
-            yield
-
-    X = np.array(targets).reshape(-1, 1) 
-    Y = np.array(dev_degs)
-
-    reg = LinearRegression().fit(X, Y)
-    print('reg x', reg.coef_, reg.intercept_)
-    prd_x = reg.predict(X)
-
-    with open('data/angle.csv', 'w') as f:
-        f.write('target, dev, prd, reg\n')
-
-        for target, dev_deg, prd_deg in zip(targets, dev_degs, prd_x.tolist()):
-
-            f.write(f'{target}, {dev_deg}, {prd_deg}, {reg.coef_[0] * target + reg.intercept_}\n')
-
-    params['calibration']['servo'][ch] = [ reg.coef_[0], reg.intercept_ ]
-
-    write_params(params)
-
+    window[jKeys[ch]].update(value=int(servo_to_angle(ch, servo_angles[ch])))
 
 def fitRegression(eye_xy, hand_x, hand_y):
     X = np.array(eye_xy)
@@ -254,6 +210,17 @@ def draw_grid(frame):
     for x in range(0, w, w // 20):
         cv2.line(frame, (x, 0), (x, h), (255, 0, 0))
 
+    cx, cy = w // 2, h // 2
+    r = math.sqrt(cx * cx + cy * cy)
+
+    x1, y1 = r * np.cos(radian(30)), r * np.sin(radian(30)), 
+    cv2.line(frame, (int(cx - x1), int(cy + y1)), (int(cx + x1), int(cy - y1)), (255, 0, 0), thickness=2)
+    cv2.line(frame, (int(cx - x1), int(cy - y1)), (int(cx + x1), int(cy + y1)), (255, 0, 0), thickness=2)
+    
+    x1, y1 = r * np.cos(radian(60)), r * np.sin(radian(60)), 
+    cv2.line(frame, (int(cx - x1), int(cy + y1)), (int(cx + x1), int(cy - y1)), (255, 0, 0), thickness=2)
+    cv2.line(frame, (int(cx - x1), int(cy - y1)), (int(cx + x1), int(cy + y1)), (255, 0, 0), thickness=2)
+
 down_pos = None
 radius = None
 
@@ -300,7 +267,7 @@ def hand_eye_calibration(marker_table):
         return np.nan
 
     marker_table[:, 2] = - marker_table[:, 2]
-    
+
     p1, p2, p3, p4 = [ Vec3(* marker_table[i, :3].tolist()) for i in range(4) ]
 
     normal_vec = (p2 - p1).cross(p3 - p1).unit()
@@ -314,10 +281,12 @@ if __name__ == '__main__':
 
     params = read_params()
 
-    servo_angles = params['servo-angles']
     marker_ids = params['marker-ids']
+    datum_angles = params['datum-angles']
 
-    init_servo(params, servo_angles)
+    datum_servo_angles = np.full((nax, 2), np.nan)
+
+    init_servo(params)
     init_markers(params)
     initCamera()
 
@@ -326,7 +295,7 @@ if __name__ == '__main__':
         [
             sg.Column([
                 [
-                    sg.Text('', key='-rotation-')
+                    sg.Text('', key='-tcp-height-')
                 ]
             ])
             ,
@@ -334,10 +303,13 @@ if __name__ == '__main__':
                 spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 120, True) + [ 
                     sg.Text('', key=f'-yaw-{ch+1}-'), 
                     sg.Text('', key=f'-angle-{ch+1}-'), 
-                    sg.Text('', key=f'-vec-{ch+1}-'), 
-                    sg.Button('start', key=f'-start-J{ch+1}-')
+                    sg.Text('', key=f'-vec-{ch+1}-')
                 ]
                 for ch, deg in enumerate(servo_angles)
+            ])
+            ,
+            sg.Column([
+                [ sg.Button(f'{a}', key=f'-datum-angle-{ch}-0-', size=(4,1)), sg.Button(f'{b}', key=f'-datum-angle-{ch}-1-', size=(4,1)) ] for ch, (a, b) in enumerate(datum_angles) 
             ])
             ,
             sg.Column([
@@ -355,8 +327,6 @@ if __name__ == '__main__':
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
-
-    start_keys = [ f'-start-J{i+1}-' for i in range(nax) ]
 
     pose = forward_kinematics(servo_angles)
     show_pose(window, pose)
@@ -401,14 +371,19 @@ if __name__ == '__main__':
 
             window[servo_angle_keys[ch]].update(value=int(servo_deg))
 
-        elif event in start_keys:
-            moving = calibrate_angle(event)
+        elif event in pose_keys:
+            pose = get_pose(values)
+            moving = move_linear(pose)
+
+        elif event.startswith('-datum-angle-'):
+            calibrate_angle(event)
 
         elif event == 'Ready':
-            for key, deg in zip(servo_angle_keys, params['ready']):
-                window[key].update(value=deg)
+            degs = params['ready']
+            for ch, deg in enumerate(degs):
+                window[jKeys[ch]].update(value=deg)
 
-            moving = move_all_servo(params['ready'])
+            moving = move_all_joints(degs)
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
@@ -456,8 +431,7 @@ if __name__ == '__main__':
                 marker_table[:, 5] = angles2
 
                 h = hand_eye_calibration(marker_table[6:, :])
-                print(f'h:{h:.1f}')
-
+                window['-tcp-height-'].update(value=f'height:{h:.1f}')
 
                 window['-marker-table-'].update(values=marker_table.tolist())
 

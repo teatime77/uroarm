@@ -6,7 +6,7 @@ import json
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from kinematics import forward_kinematics, inverse_kinematics, move_linear, move_xyz
-from util import nax, jKeys, radian, write_params, loadParams, t_all, spin, spin2, degree, Vec2, arctan2p, sleep, show_pose
+from util import nax, jKeys, pose_keys, radian, read_params, write_params, t_all, spin, spin2, degree, Vec2, arctan2p, sleep, get_pose, show_pose
 from servo import init_servo, set_angle, move_joint, move_servo, servo_to_angle, angle_to_servo, move_all_joints
 from infer import Inference
     
@@ -19,15 +19,6 @@ moveCnt = 30
 grab_cnt = 0
 Pos1 = [   0, -80, 80, 80,   0, 0  ]
 Pos2 = [ -90, -80, 80, 80, -90, 0  ]
-
-posKeys = [ "X", "Y", "Z", "R1", "R2" ]
-
-def getPose():
-    dst = [ float(values[k]) for k in posKeys ]
-    dst[3] = radian(dst[3])
-    dst[4] = radian(dst[4])
-
-    return dst
 
 def jointKey(i):
     return "J%d" % (i+1)
@@ -88,9 +79,9 @@ def grabWork(x, y):
 
 if __name__ == '__main__':
 
-    params, servo_angles, Angles = loadParams()
+    params = read_params()
 
-    init_servo(params, servo_angles, Angles)
+    init_servo(params)
 
     initCamera()
 
@@ -157,10 +148,10 @@ if __name__ == '__main__':
 
             window[servo_angle_keys[ch]].update(value=int(angle_to_servo(ch, deg)))
             
-        elif event in posKeys:
+        elif event in pose_keys:
             # 目標ポーズ
 
-            pose = getPose()
+            pose = get_pose(values)
             rad5s = inverse_kinematics(pose)
             if rad5s is not None:
 

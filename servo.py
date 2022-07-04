@@ -4,7 +4,7 @@ import math
 import serial
 import cv2
 import PySimpleGUI as sg
-from util import nax, read_params, servo_angle_keys, radian, write_params, loadParams, spin, spin2, degree, t_all, sleep
+from util import nax, read_params, servo_angle_keys, radian, write_params, spin, spin2, degree, t_all, sleep
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
@@ -35,6 +35,7 @@ j_range = [
     [  -20,   20 ]
 ]
 
+servo_angles = [np.nan] * nax
 
 def init_servo_nano(params):
     global pwm
@@ -56,10 +57,13 @@ def set_servo_angle_nano(ch, deg):
     setPWM(ch, rad)
 
 
-def init_servo(params, servo_angles_arg):
-    global servo_angles, servo_param, ser
+def init_servo(params_arg):
+    global params, servo_angles, servo_param, ser
 
-    servo_angles = servo_angles_arg
+    params = params_arg
+
+    for ch, deg in enumerate(params['servo-angles']):
+        servo_angles[ch] = deg
 
     com_port = params['COM'] 
     servo_param = params['calibration']['servo']
@@ -69,6 +73,12 @@ def init_servo(params, servo_angles_arg):
     except serial.serialutil.SerialException: 
         print(f'指定されたシリアルポートがありません。{com_port}')
         sys.exit(0)
+
+def set_servo_param(ch, scale, offset):
+    servo_param[ch] = [scale, offset]
+    params['calibration']['servo'][ch] = [scale, offset]
+
+    write_params(params)
 
 def angle_to_servo(ch, deg):
     coef, intercept = servo_param[ch]
@@ -133,9 +143,8 @@ def move_all_servo(dsts):
 if __name__ == '__main__':
 
     params = read_params()
-    servo_angles = params['servo-angles']
 
-    init_servo(params, servo_angles)
+    init_servo(params)
 
     layout = [
         [
@@ -168,12 +177,6 @@ if __name__ == '__main__':
             deg = values[event]
 
             moving = move_servo(ch, deg)
-
-        elif event == 'Ready':
-            for key, deg in zip(servo_angle_keys, params['ready']):
-                window[key].update(value=deg)
-
-            moving = move_all_servo(params['ready'])
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
