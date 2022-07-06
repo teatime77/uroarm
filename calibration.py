@@ -395,17 +395,6 @@ def get_tcp():
         tcp_scr  = marker_table[3:5, 3:5].mean(axis=0)
 
         return Vec3(* tcp_cam.tolist()), Vec2(* tcp_scr.tolist())
-    
-def get_hand_coordinates_from_screen(screen_x, screen_y):
-    # カメラ座標のx/z, y/z
-    xz, yz = get_camera_xz_yz_from_screen(screen_x, screen_y)
-
-    # カメラ座標のx, y, z
-    cam_x, cam_y, cam_z = get_camera_xyz_from_xz_yz(normal_vector, basis_point, xz, yz)
-
-    hand_x, hand_y, hand_z = get_hand_coordinates_from_camera(cam_x, cam_y, cam_z)
-
-    return hand_x, hand_y, hand_z
 
 def prepare():
     global normal_vector, basis_point, camera_pred_x, camera_pred_y
