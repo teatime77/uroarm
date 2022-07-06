@@ -3,14 +3,12 @@ import math
 import numpy as np
 import PySimpleGUI as sg
 import json
-from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from kinematics import forward_kinematics, inverse_kinematics, move_linear, move_xyz
 from util import nax, jKeys, pose_keys, radian, read_params, write_params, t_all, spin, spin2, degree, Vec2, arctan2p, sleep, get_pose, show_pose
 from servo import init_servo, set_angle, move_joint, move_servo, servo_to_angle, angle_to_servo, move_all_joints
 from infer import Inference
     
-hand_idx = nax - 1
 poseDim = 5
 moving = None
 stopMoving = False
@@ -28,54 +26,6 @@ def showJoints(ts):
         key = jointKey(i)
         window[key].Update(int(round(degree(j))))
 
-
-
-def openHand():
-    for _ in move_joint(hand_idx, -25):
-        yield
-
-def closeHand():
-    for _ in move_joint(hand_idx, 20):
-        yield
-
-def grabWork(x, y):
-    global grab_cnt
-
-    grab_z = 10
-    lift_z = 30
-
-    for _ in move_linear(Pos1):
-        yield
-
-    for _ in openHand():
-        yield
-
-    for _ in move_xyz(x, y, grab_z):
-        yield
-
-    for _ in closeHand():
-        yield
-
-    for _ in sleep(3):
-        yield
-
-    x = (grab_cnt % 4) * 50
-    grab_cnt += 1
-
-    for _ in move_linear(Pos1):
-        yield
-
-    for _ in move_linear(Pos2):
-        yield
-
-    for _ in move_xyz(x, -150, lift_z):
-        yield
-
-    for _ in openHand():
-        yield
-
-    for _ in move_linear(Pos1):
-        yield
 
 if __name__ == '__main__':
 
@@ -175,12 +125,6 @@ if __name__ == '__main__':
             
         elif event == "Ready":            
             moving = move_all_joints(Pos1)
-
-        elif event == "Send":
-
-            eye_x, eye_y = sendImage(values, inference)
-            hand_x, hand_y = Eye2Hand(eye_x, eye_y)
-            moving = grabWork(hand_x, hand_y)
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 

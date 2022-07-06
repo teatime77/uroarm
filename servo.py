@@ -6,7 +6,6 @@ import cv2
 import PySimpleGUI as sg
 from util import nax, read_params, servo_angle_keys, radian, write_params, spin, spin2, degree, t_all, sleep
 import numpy as np
-from sklearn.linear_model import LinearRegression
 
 j_range1 = [
     [  -80,  80 ],

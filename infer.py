@@ -114,6 +114,9 @@ class Inference():
         self.img_que = Queue()
         self.result_que = Queue()
         
+        self.cx = np.nan
+        self.cy = np.nan
+        
         self.pw = Process(target=infer_img, args=(self.img_que, self.result_que))
 
         self.pw.start()
@@ -125,10 +128,13 @@ class Inference():
         try:
             cx, cy = self.result_que.get_nowait()
 
-            return cx, cy
+            self.cx = cx
+            self.cy = cy
 
         except queue.Empty:
-            return np.nan, np.nan
+            pass
+
+        return self.cx, self.cy
 
     def get_OLD(self, bmp):
         self.put(bmp)

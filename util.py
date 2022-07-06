@@ -81,6 +81,9 @@ class Vec3:
     def cross(self, v):
         return Vec3(self.y * v.z - self.z * v.y, self.z * v.x - self.x * v.z, self.x * v.y - self.y * v.x)
 
+    def __rmul__(self, other):
+        return Vec3(other * self.x , other * self.y, other * self.z)
+
     def __add__(self, other):
         return Vec3(self.x + other.x, self.y + other.y, self.z + other.z)
 

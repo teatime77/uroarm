@@ -3,7 +3,6 @@ import math
 import numpy as np
 import PySimpleGUI as sg
 import json
-from sklearn.linear_model import LinearRegression
 from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
 from util import nax, jKeys, radian, write_params, t_all, spin, spin2, degree, Vec2, arctan2p
 from servo import servo_to_angle
@@ -45,8 +44,8 @@ def forward_kinematics(servo_angles):
     pose = [ x, y, z, j4, theta]
 
     r   = Vec2(x, y).len()
-    print(f'FK p1:{p1} p2:{p2} p3:{p3} p4:{p4} tcp:{tcp} x:{x:.1f} y:{y:.1f} z:{z:.1f} theta:{degree(theta):.1f} r:{r:.1f}')
-    print('   js', [f'{degree(j):.1f}' for j in rads])
+    # print(f'FK p1:{p1} p2:{p2} p3:{p3} p4:{p4} tcp:{tcp} x:{x:.1f} y:{y:.1f} z:{z:.1f} theta:{degree(theta):.1f} r:{r:.1f}')
+    # print('   js', [f'{degree(j):.1f}' for j in rads])
 
 
     rad5s = inverse_kinematics(pose)
@@ -57,7 +56,8 @@ def forward_kinematics(servo_angles):
     degs2 = degree(rad5s)
     
     diff_max = np.array([abs(deg2 - deg1) for deg1, deg2 in zip(degs1, degs2)]).max()
-    print(f'IK diff:{diff_max:.16f}', [ f'{deg1:.1f} {deg2:.1f} {deg2 - deg1:.1f}'  for i, (deg1, deg2) in enumerate(zip(degs1, degs2)) ])
+    if 0.1 < diff_max:
+        print(f'IK diff:{diff_max:.16f}', [ f'{deg1:.1f} {deg2:.1f} {deg2 - deg1:.1f}'  for i, (deg1, deg2) in enumerate(zip(degs1, degs2)) ])
 
     return arr(pose)
 
@@ -133,9 +133,7 @@ def inverse_kinematics(pose):
 
     ts = [ normalize_radian(rad) for rad in ts ]
 
-    print(f'IK p1:{p1} p2:{p2} p3:{p3} p4:{p4} tcp:{tcp} x:{x:.1f} y:{y:.1f} z:{z:.1f} theta:{degree(theta):.1f} r:{r:.1f}')
-    print('   js', [f'{degree(j):.1f}' for j in ts])
-
-    # print("J2:%.1f  J3:%.1f  J4:%.1f " % (degree(ts[1]), degree(ts[2]), degree(ts[3])))
+    # print(f'IK p1:{p1} p2:{p2} p3:{p3} p4:{p4} tcp:{tcp} x:{x:.1f} y:{y:.1f} z:{z:.1f} theta:{degree(theta):.1f} r:{r:.1f}')
+    # print('   js', [f'{degree(j):.1f}' for j in ts])
 
     return ts
