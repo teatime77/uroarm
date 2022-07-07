@@ -297,37 +297,6 @@ def show_next_pose(ch, servo_deg):
     pose = forward_kinematics(degs)            
     show_pose(window, pose)
 
-def get_camera_xz_yz_from_screen(screen_x, screen_y):
-    # テスト用のマーカー
-    X = np.array([screen_x, screen_y]).reshape((1, 2))
-
-    # x/zとy/zを予測する。
-    xz = camera_pred_x.predict(X)
-    yz = camera_pred_y.predict(X)
-
-    assert xz.shape == (1,) and yz.shape == (1,)
-    xz, yz = xz[0], yz[0]
-
-    return xz, yz
-
-def get_camera_xyz_from_xz_yz(norm, p1, xz, yz):
-    # 平面の方程式
-    # n.x * x + n.y * y + n.z * z = n.dot(p1)
-
-    # 両辺をzで割る。
-    # n.x * x/z + n.y * y/z + n.z = n.dot(p1) / z
-
-    # x/zとy/zからzを計算する。
-    # z = n.dot(p1) / (n.x * x/z + n.y * y/z + n.z)
- 
-    # x/zとy/zからzを計算する。
-    z = norm.dot(p1) / (norm.x * xz + norm.y * yz + norm.z)
-
-    # x, y, zを計算する。
-    x1, y1, z1 = xz * z, yz * z, z
-
-    return x1, y1, z1
-
 def get_arm_xyz_from_screen(scr_x, scr_y):
     coef = np.array(params['calibration']['hand-eye']['coef'])
     intercept = np.array(params['calibration']['hand-eye']['intercept'])
@@ -336,29 +305,6 @@ def get_arm_xyz_from_screen(scr_x, scr_y):
 
     return arm_x, arm_y, arm_z
 
-def make_screen_to_camera_predictor(norm, p1):
-    # スクリーン座標
-    X = marker_table[:, 3:5]
-
-    # カメラ座標
-    xz = marker_table[:, 0] / marker_table[:, 2]
-    yz = marker_table[:, 1] / marker_table[:, 2]
-
-    # スクリーン座標からカメラ座標のx/zとy/zの予測の学習をする。
-    camera_pred_x = LinearRegression().fit(X, xz)
-    camera_pred_y = LinearRegression().fit(X, yz)
-
-    # 予測値を得る。
-    prd_xz = camera_pred_x.predict(X)
-    prd_yz = camera_pred_y.predict(X)
-
-    # 予測の誤差を検証する。
-    for i in range(X.shape[0]):
-        diff_xz, diff_yz = prd_xz[i] - xz[i], prd_yz[i] - yz[i]
-        if(0.005 < abs(diff_xz) or 0.005 < abs(diff_yz)):
-            print(f'cam:{X[i, 0]} {X[i, 1]} x:({xz[i]:.3f} {prd_xz[i]:.3f}) y:({yz[i]:.3f} {prd_yz[i]:.3f}) diff:{diff_xz:.5f} {diff_yz:.5f}')
-
-    return camera_pred_x, camera_pred_y
 
 def get_plane():
     p1, p2, p3 = [ Vec3(*xyz ) for xyz in marker_table[:3, :3].tolist() ]
@@ -394,23 +340,6 @@ def prepare():
 
     # 平面の法線ベクトルと、平面上の1点
     normal_vector, basis_point = get_plane()
-
-    # スクリーン座標からカメラ座標のx/z, y/zへの学習器
-    camera_pred_x, camera_pred_y = make_screen_to_camera_predictor(normal_vector, basis_point)
-
-    # テスト用のポイントのスクリーン座標
-    screen_x, screen_y = marker_table[5, 3:5]
-
-    # カメラ座標のx/z, y/z
-    xz, yz = get_camera_xz_yz_from_screen(screen_x, screen_y)
-
-    # カメラ座標のx, y, z
-    x1, y1, z1 = get_camera_xyz_from_xz_yz(normal_vector, basis_point, xz, yz)
-
-    # 正解のx, y, z
-    x2, y2, z2 = marker_table[5, :3]
-    if 3 <= max(abs(x2 - x1), abs(y2 - y1), abs(z2 - z1)):
-        print(f'xyz:({x1:.1f} {x2:.1f}, {y1:.1f} {y2:.1f}, {z1:.1f} {z2:.1f})')
 
     return True
 
