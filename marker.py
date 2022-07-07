@@ -99,17 +99,12 @@ def detect_markers(marker_ids, frame):
 
     aruco.drawDetectedMarkers(frame, corners, ids)            
 
-
-    msg = ''
-
     marker_length = 13.5
     
     vecs = [None] * len(marker_ids)
 
     if corners is None or ids is None:
         return frame, vecs
-
-    height, width = frame.shape[:2]
 
     for corner, id in zip(corners, ids):
         if not id in marker_ids:
@@ -122,77 +117,17 @@ def detect_markers(marker_ids, frame):
         # 不要なaxisを除去
         tvec = np.squeeze(tvec)
         rvec = np.squeeze(rvec)
-        # 回転ベクトルからrodoriguesへ変換
-        rvec_matrix = cv2.Rodrigues(rvec)
-        rvec_matrix = rvec_matrix[0] # rodoriguesから抜き出し
-        # 並進ベクトルの転置
-        transpose_tvec = tvec[np.newaxis, :].T
-        # 合成
-        proj_matrix = np.hstack((rvec_matrix, transpose_tvec))
-        # オイラー角への変換
-        euler_angle = cv2.decomposeProjectionMatrix(proj_matrix)[6] # [deg]
-        euler_angle = np.squeeze(euler_angle)
-
-        # print("x : " + str(tvec[0]))
-        # print("y : " + str(tvec[1]))
-        # print("z : " + str(tvec[2]))
-        # print("roll : " + str(euler_angle[0]))
-        # print("pitch: " + str(euler_angle[1]))
-        # print("yaw  : " + str(euler_angle[2]))
-
-        # print(tvec, euler_angle)                    
-
-        # rvec = rvec[0, 0, :]
-        # tvec = tvec[0, 0, :]
-        # print(rvec.shape, rvec, tvec.shape, tvec)
-
 
         frame = aruco.drawAxis(frame, camera_matrix, dist_coeffs, rvec, tvec, 10)
         
         assert corner.shape == (1, 4, 2)
-        pxy = corner[0,:,:].mean(axis=0)
+        corner = np.squeeze(corner)
+        assert corner.shape == (4, 2)
+
+        pxy = corner.mean(axis=0)
 
         tvec[1] = - tvec[1]
 
         vecs[idx] = np.concatenate([tvec, pxy])
 
     return frame, vecs
-
-if __name__ == '__main__':
-
-    params = read_params()
-    marker_ids = params['marker-ids']
-
-    init_markers(params)
-
-    initCamera()
-
-    layout = [
-        [ sg.Text('', key='-msg-')]
-        ,
-        [ sg.Button('Close') ]
-    ]
-
-    window = sg.Window('marker', layout, element_justification='c') # disable_minimize=True, 
-
-    last_capture = time.time()
-    while True:
-        event, values = window.read(timeout=1)
-
-        if event == sg.WIN_CLOSED or event == 'Close':
-
-            closeCamera()
-            break
-
-        else:
-
-            frame = getCameraFrame()
-
-            frame, vecs = detect_markers(marker_ids, frame)
-
-            msg = ''
-            if 1 <= time.time() - last_capture:
-                last_capture = time.time()
-                window['-msg-'].update(value=msg)
-
-            cv2.imshow("camera", frame)

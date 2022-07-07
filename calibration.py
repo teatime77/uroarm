@@ -266,34 +266,7 @@ def calibrate_xy():
 
     f.close()
 
-# def test_arm_from_screen():
-#     # スクリーン座標
-#     X = np.array(params['X'])
 
-#     # アームのXY座標の正解
-#     Y = np.array(params['Y'])
-
-#     coef = np.array(params['calibration']['hand-eye']['coef'])
-#     intercept = np.array(params['calibration']['hand-eye']['intercept'])
-
-#     # アームのXY座標の予測値
-#     Y2 = (coef.dot(X.transpose()) + intercept.reshape(3, 1)).transpose()
-
-#     # 予測の誤差
-#     D = Y - Y2
-#     for i in range(X.shape[0]):
-#         dx, dy = D[i, :]
-#         print(f'dxyz 2:{dx:.1f} {dy:.1f}')
-
-#         # スクリーン座標
-#         scr_x, scr_y = X[i, :]
-
-#         # アームのXY座標の予測値
-#         arm_x, arm_y, arm_z = get_arm_xyz_from_screen(scr_x, scr_y)
-
-#         # 予測の誤差
-#         dx, dy = Y[i, :] - np.array([arm_x, arm_y])
-#         print(f'dxyz 3:{dx:.1f} {dy:.1f}')
 
 
 def draw_grid(frame):
@@ -551,8 +524,6 @@ if __name__ == '__main__':
     be_prepared = False
 
     params = read_params()
-
-    # test_arm_from_screen()
 
     marker_ids = params['marker-ids']
     datum_angles = params['datum-angles']
