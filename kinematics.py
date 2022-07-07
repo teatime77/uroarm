@@ -3,11 +3,11 @@ import math
 import numpy as np
 import PySimpleGUI as sg
 import json
-from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand
-from util import nax, jKeys, radian, write_params, t_all, spin, spin2, degree, Vec2, arctan2p
+from camera import initCamera, closeCamera
+from util import nax, jKeys, radian, write_params, spin, spin2, degree, Vec2, arctan2p
 from servo import servo_to_angle
 
-L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 162 ]
+L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 167 - 10 ]
 
 def arr(v):
     if isinstance(v, np.ndarray):

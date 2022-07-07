@@ -7,32 +7,6 @@ import PySimpleGUI as sg
 from util import nax, read_params, servo_angle_keys, radian, write_params, spin, spin2, degree, t_all, sleep
 import numpy as np
 
-j_range1 = [
-    [  -80,  80 ],
-    [ -100, -30 ],
-    [   50, 120 ],
-    [   25,  70 ],
-    [  -90,  90 ],
-    [    0,  90 ]
-]
-
-j_range2 = [
-    [  -80,   80 ],
-    [  -60,   10 ],
-    [ -120,  -50 ],
-    [  -70,  -25 ],
-    [  -90,   90 ],
-    [    0,   90 ]
-]
-
-j_range = [
-    [  -20,   20 ],
-    [  -20,   20 ],
-    [  -20,   20 ],
-    [  -20,   20 ],
-    [  -20,   20 ],
-    [  -20,   20 ]
-]
 
 servo_angles = [np.nan] * nax
 
@@ -111,8 +85,7 @@ def move_servo(ch, dst):
 
     start_time = time.time()
     while True:
-        total_time = t_all
-        t = (time.time() - start_time) / total_time
+        t = (time.time() - start_time) / t_all
         if 1 <= t:
             break
 

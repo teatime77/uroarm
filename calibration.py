@@ -6,45 +6,36 @@ import PySimpleGUI as sg
 import json
 import cv2
 from sklearn.linear_model import LinearRegression
-from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
-from util import nax, jKeys, pose_keys, read_params, servo_angle_keys, getGlb, radian, write_params, t_all, spin, spin2, degree, Vec2, Vec3, sleep, get_pose, show_pose
-from servo import j_range, init_servo, set_servo_angle, move_servo, move_all_servo, angle_to_servo, servo_to_angle, set_servo_param, servo_angles
+from camera import initCamera, closeCamera, getCameraFrame
+from util import nax, jKeys, pose_keys, read_params, servo_angle_keys, radian, write_params, t_all, spin, spin2, degree, Vec2, Vec3, sleep, get_pose, show_pose
+from servo import init_servo, set_servo_angle, move_servo, move_all_servo, angle_to_servo, servo_to_angle, set_servo_param, servo_angles
 from kinematics import forward_kinematics, inverse_kinematics
 from marker import init_markers, detect_markers
 
 hand_idx = nax - 1
 
-GRAB_Z = 5
+PICK_Z = 10
 LIFT_Z = 30
 
-pose1 = [
-      40,
-    -110,
-      50,
-      math.pi / 2,
-      math.pi / 2
-]
+pose1 = [ 90, -90, 50, math.pi / 4, math.pi / 2 ]
 
 
 rect_pose = [0, ]
 def set_angle(ch : int, deg : float):
-    if not (j_range[ch][0] - 10 <= deg and deg <= j_range[ch][1] + 10):
-
-        # print(f'set angle err: ch:{ch} deg:{deg}')
-        # assert False
-        pass
-
     servo_deg = angle_to_servo(ch, deg)
 
     set_servo_angle(ch, servo_deg)
 
 def move_joint(ch, dst):
+    global is_moving
+
+    is_moving = True
+
     src = servo_to_angle(ch, servo_angles[ch])
 
     start_time = time.time()
     while True:
-        total_time = t_all
-        t = (time.time() - start_time) / total_time
+        t = (time.time() - start_time) / t_all
         if 1 <= t:
             break
 
@@ -54,13 +45,18 @@ def move_joint(ch, dst):
 
         yield
 
+    is_moving = False
+
 def move_all_joints(dsts):
+    global is_moving
+
+    is_moving = True
+
     srcs = [ servo_to_angle(ch, servo_angles[ch]) for ch in range(nax) ]
 
     start_time = time.time()
     while True:
-        total_time = t_all
-        t = (time.time() - start_time) / total_time
+        t = (time.time() - start_time) / t_all
         if 1 <= t:
             break
 
@@ -72,6 +68,8 @@ def move_all_joints(dsts):
 
         yield
 
+    is_moving = False
+
 def open_hand():
     for _ in move_joint(hand_idx, 50):
         yield
@@ -81,13 +79,14 @@ def close_hand():
         yield
 
 def move_linear(dst):
-    global move_linear_ok
+    global move_linear_ok, is_moving
 
+    is_moving = True
     move_linear_ok = True
 
     src = forward_kinematics(servo_angles)
 
-    with open('ik.csv', 'w') as f:
+    with open('data/ik.csv', 'w') as f:
         f.write('time,J1,J2,J3,J4,J5,J6\n')
         start_time = time.time()
         while True:
@@ -112,6 +111,8 @@ def move_linear(dst):
 
             yield
 
+    is_moving = False
+
 def move_xyz(x, y, z):
     x_min = 100
     x_max = 300
@@ -129,6 +130,14 @@ def move_xyz(x, y, z):
     pose = [ x, y, z, yaw, radian(pitch)]
 
     for _ in move_linear(pose):
+        yield
+
+def move_to_ready():
+    degs = params['ready']
+    for ch, deg in enumerate(degs):
+        window[jKeys[ch]].update(value=deg)
+
+    for _ in move_all_joints(degs):
         yield
 
 def calibrate_angle(event):
@@ -156,63 +165,69 @@ def calibrate_angle(event):
 
     window[jKeys[ch]].update(value=int(servo_to_angle(ch, servo_angles[ch])))
 
-def Calibrate():
+def calibrate_xy():
     tcp_scrs = []
-    arm_xy = []
+    arm_xyz = []
 
-    ys = [-60, 0, 60]
+    ys = [-80, 0, 80]
     xs = [120, 190, 250]
     # ys = [-60, 60]
     # xs = [150, 250]
-    for y in ys:
-        for x in xs:
-            print(f'start move x:{x} y:{y}')
+
+    f = open('data/calibrate-xy.csv', 'w')
+    f.write('scr-x, scr-y, tcp-height, arm-x, arm-y, arm-z, prd-arm-x, prd-arm-y\n')
+
+    tcp_heights = []
+    for arm_y in ys:
+        for arm_x in xs:
+            print(f'start move x:{arm_x} y:{arm_y}')
 
             # z = LIFT_Zの位置に移動する。
-            z = LIFT_Z
-            for _ in move_xyz(x, y, z):
+            arm_z = LIFT_Z
+            for _ in move_xyz(arm_x, arm_y, arm_z):
                 yield
-
-            if not move_linear_ok:
-                print(f'skip move x:{x} y:{y}')
-                continue
             
             print("move xy end")
             for _ in sleep(3):
                 yield
 
-            while np.isnan(tcp_height):
-                yield
+            for trial in range(10000):
+                while np.isnan(tcp_height):
+                    yield
 
-            # GRAB_Zの位置に移動する。
-            z -= tcp_height - GRAB_Z
-            for _ in move_xyz(x, y, z):
-                yield
+                diff = tcp_height - PICK_Z
+                print(f'move z trial:{trial} diff:{diff:.1f}')
+                if abs(diff) < 5:
+                    break
+
+                # PICK_Zの位置に移動する。
+                arm_z -= tcp_height - PICK_Z
+                for _ in move_xyz(arm_x, arm_y, arm_z):
+                    yield
 
             for _ in sleep(3):
                 yield
 
+            print(f'move z end:{tcp_height:.1f}')
+
             while np.isnan(tcp_height):
                 yield
 
-            print(f'move z end:{tcp_height:.1f}')
+            tcp_heights.append(tcp_height)
 
-            while get_tcp()[0] is None:
-                yield
-
-            tcp_cam, tcp_scr = get_tcp()
-
-            arm_xy.append([x, y])
+            arm_xyz.append([arm_x, arm_y, arm_z])
             tcp_scrs.append([tcp_scr.x, tcp_scr.y])
 
             # z = LIFT_Zの位置に移動する。
-            for _ in move_xyz(x, y, LIFT_Z):
+            for _ in move_xyz(arm_x, arm_y, LIFT_Z):
                 yield
 
+    for _ in move_to_ready():
+        yield 
 
     # スクリーン座標からアームのXY座標を予測する。
     X = np.array(tcp_scrs)
-    Y = np.array(arm_xy)
+    Y = np.array(arm_xyz)
 
     reg = LinearRegression().fit(X, Y)
 
@@ -232,43 +247,53 @@ def Calibrate():
 
     prd = reg.predict(X)
 
-    for dx, dy in (Y - prd).tolist():
-        print(f'dxyz 1:{dx:.1f} {dy:.1f}')
+    for dx, dy, dz in (Y - prd).tolist():
+        print(f'dxyz 1:{dx:.1f} {dy:.1f} {dz:.1f}')
 
-    A = (reg.coef_.dot(X.transpose()) + reg.intercept_.reshape(2, 1)).transpose()
+    A = (reg.coef_.dot(X.transpose()) + reg.intercept_.reshape(3, 1)).transpose()
     B = Y - A
     for i in range(X.shape[0]):
-        dx, dy = B[i, :]
-        print(f'dxyz 2:{dx:.1f} {dy:.1f}')
+        dx, dy, dz = B[i, :]
+        print(f'dxyz 2:{dx:.1f} {dy:.1f} {dz:.1f}')
 
-def test_arm_from_screen():
-    # スクリーン座標
-    X = np.array(params['X'])
+    for (arm_x, arm_y, arm_z), height, (scr_x, scr_y) in zip(arm_xyz, tcp_heights, tcp_scrs):
+        X = np.array([[scr_x, scr_y]])
 
-    # アームのXY座標の正解
-    Y = np.array(params['Y'])
+        prd = reg.predict(X)
+        prd_arm_x, prd_arm_y, prd_arm_z = prd[0, :]
 
-    coef = np.array(params['calibration']['hand-eye']['coef'])
-    intercept = np.array(params['calibration']['hand-eye']['intercept'])
+        f.write(f'{scr_x}, {scr_y}, {height}, {arm_x}, {arm_y}, {arm_z}, {prd_arm_x}, {prd_arm_y}, {prd_arm_z}\n')
 
-    # アームのXY座標の予測値
-    Y2 = (coef.dot(X.transpose()) + intercept.reshape(2, 1)).transpose()
+    f.close()
 
-    # 予測の誤差
-    D = Y - Y2
-    for i in range(X.shape[0]):
-        dx, dy = D[i, :]
-        print(f'dxyz 2:{dx:.1f} {dy:.1f}')
+# def test_arm_from_screen():
+#     # スクリーン座標
+#     X = np.array(params['X'])
 
-        # スクリーン座標
-        scr_x, scr_y = X[i, :]
+#     # アームのXY座標の正解
+#     Y = np.array(params['Y'])
 
-        # アームのXY座標の予測値
-        arm_x, arm_y = get_arm_xy_from_screen(scr_x, scr_y)
+#     coef = np.array(params['calibration']['hand-eye']['coef'])
+#     intercept = np.array(params['calibration']['hand-eye']['intercept'])
 
-        # 予測の誤差
-        dx, dy = Y[i, :] - np.array([arm_x, arm_y])
-        print(f'dxyz 3:{dx:.1f} {dy:.1f}')
+#     # アームのXY座標の予測値
+#     Y2 = (coef.dot(X.transpose()) + intercept.reshape(3, 1)).transpose()
+
+#     # 予測の誤差
+#     D = Y - Y2
+#     for i in range(X.shape[0]):
+#         dx, dy = D[i, :]
+#         print(f'dxyz 2:{dx:.1f} {dy:.1f}')
+
+#         # スクリーン座標
+#         scr_x, scr_y = X[i, :]
+
+#         # アームのXY座標の予測値
+#         arm_x, arm_y, arm_z = get_arm_xyz_from_screen(scr_x, scr_y)
+
+#         # 予測の誤差
+#         dx, dy = Y[i, :] - np.array([arm_x, arm_y])
+#         print(f'dxyz 3:{dx:.1f} {dy:.1f}')
 
 
 def draw_grid(frame):
@@ -291,23 +316,6 @@ def draw_grid(frame):
     cv2.line(frame, (int(cx - x1), int(cy + y1)), (int(cx + x1), int(cy - y1)), (255, 0, 0), thickness=2)
     cv2.line(frame, (int(cx - x1), int(cy - y1)), (int(cx + x1), int(cy + y1)), (255, 0, 0), thickness=2)
 
-down_pos = None
-radius = None
-
-def mouse_callback(event,x,y,flags,param):
-    global down_pos, radius
-
-    if event == cv2.EVENT_LBUTTONDOWN:
-        down_pos = (x, y)
-
-    elif event == cv2.EVENT_LBUTTONUP:
-        down_pos = None
-        radius   = None
-
-    elif event == cv2.EVENT_MOUSEMOVE and down_pos is not None:
-        dx = down_pos[0] - x
-        dy = down_pos[1] - y
-        radius = int(math.sqrt(dx * dx + dy * dy))
 
 def show_next_pose(ch, servo_deg):
     degs = list(servo_angles)
@@ -347,13 +355,13 @@ def get_camera_xyz_from_xz_yz(norm, p1, xz, yz):
 
     return x1, y1, z1
 
-def get_arm_xy_from_screen(scr_x, scr_y):
+def get_arm_xyz_from_screen(scr_x, scr_y):
     coef = np.array(params['calibration']['hand-eye']['coef'])
     intercept = np.array(params['calibration']['hand-eye']['intercept'])
 
-    arm_x, arm_y = coef.dot(np.array([scr_x, scr_y])) + intercept
+    arm_x, arm_y, arm_z = coef.dot(np.array([scr_x, scr_y])) + intercept
 
-    return arm_x, arm_y
+    return arm_x, arm_y, arm_z
 
 def make_screen_to_camera_predictor(norm, p1):
     # スクリーン座標
@@ -389,12 +397,21 @@ def get_plane():
 def get_tcp():
 
     if np.isnan(marker_table[3:5, :]).any():
-        return None, None
+        return None, None, np.nan
     else:
         tcp_cam  = marker_table[3:5,  :3].mean(axis=0)
         tcp_scr  = marker_table[3:5, 3:5].mean(axis=0)
 
-        return Vec3(* tcp_cam.tolist()), Vec2(* tcp_scr.tolist())
+        tcp_cam = Vec3(* tcp_cam.tolist())
+        tcp_scr = Vec2(* tcp_scr.tolist())
+
+        if basis_point is None:
+            tcp_height = np.nan
+
+        else:
+            tcp_height = abs(normal_vector.dot(tcp_cam - basis_point))
+
+        return tcp_cam, tcp_scr, tcp_height
 
 def prepare():
     global normal_vector, basis_point, camera_pred_x, camera_pred_y
@@ -424,7 +441,7 @@ def prepare():
 
     return True
 
-def get_arm_xy_of_work():
+def get_arm_xyz_of_work():
     if not be_prepared or inference is None:
         np.nan, np.nan
 
@@ -432,14 +449,34 @@ def get_arm_xy_of_work():
     if np.isnan(work_scr_x):
         return np.nan, np.nan
 
-    arm_x, arm_y = get_arm_xy_from_screen(work_scr_x, work_scr_y)
-    print(f'hand {arm_x:.1f} {arm_y:.1f}')
+    arm_x, arm_y, arm_z = get_arm_xyz_from_screen(work_scr_x, work_scr_y)
+    print(f'hand {arm_x:.1f} {arm_y:.1f} {arm_z:.1f}')
 
-    return arm_x, arm_y
+    return arm_x, arm_y, arm_z
 
-def approach(arm_x, arm_y):
+def test_xyz():
+    global test_pos
+
+    h, w = frame.shape[:2]
+    for scr_x in range(w // 3, w * 2 // 3, 70):
+        for scr_y in range(h // 3, h * 2 // 3, 70):
+            arm_x, arm_y, arm_z = get_arm_xyz_from_screen(scr_x, scr_y)
+
+            for _ in move_xyz(arm_x, arm_y, LIFT_Z):
+                yield
+
+            for _ in move_xyz(arm_x, arm_y, arm_z):
+                yield
+
+            test_pos = Vec2(scr_x, scr_y)
+            for _ in sleep(2):
+                yield
+            test_pos = None
+
+
+def approach(arm_x, arm_y, arm_z):
     print('ready位置へ移動')
-    for _ in move_all_joints(params['ready']):
+    for _ in move_to_ready():
         yield 
 
     print('ハンドを開く。')
@@ -451,12 +488,29 @@ def approach(arm_x, arm_y):
         yield
 
     print('把持位置を下げる。')
-    for _ in move_xyz(arm_x, arm_y, GRAB_Z):
+    for _ in move_xyz(arm_x, arm_y, arm_z):
         yield
 
+    # for trial in range(10000):
+    #     while np.isnan(tcp_height):
+    #         yield
 
-def grab(arm_x, arm_y):
-    for _ in approach(arm_x, arm_y):
+    #     diff = tcp_height - PICK_Z
+    #     print(f'move z trial:{trial} diff:{diff:.1f}')
+    #     if abs(diff) < 3:
+    #         break
+
+    #     # PICK_Zの位置に移動する。
+    #     z -= tcp_height - PICK_Z
+    #     for _ in move_xyz(x, y, z):
+    #         yield
+
+
+
+
+
+def grab(arm_x, arm_y, arm_z):
+    for _ in approach(arm_x, arm_y, arm_z):
         yield
 
     while np.isnan(tcp_height):
@@ -474,7 +528,7 @@ def grab(arm_x, arm_y):
         yield
 
     print('ready位置へ移動')
-    for _ in move_all_joints(params['ready']):
+    for _ in move_to_ready():
         yield 
 
     print('ワークのプレース位置へ移動')
@@ -486,39 +540,9 @@ def grab(arm_x, arm_y):
         yield
 
     print('ready位置へ移動')
-    for _ in move_all_joints(params['ready']):
+    for _ in move_to_ready():
         yield 
 
-def approach_OLD(cx, cy):
-    x1, y1, z1, _, _ = get_pose(values)
-
-    while True:
-        if(np.isnan(marker_table[3:, 3:5]).any()):
-            yield
-            continue
-
-        p1 = marker_table[3, 3:5]
-        p2 = marker_table[4, 3:5]
-
-        pc = 0.5 * (p1 + p2)
-        px, py = pc
-
-        step = 5
-        if px < cx:
-            y1 += step
-        else:
-            y1 -= step
-
-        if py < cy:
-            x1 += step
-
-        else:
-            x1 -= step
-
-        print(f'cx:{cx} cy:{cy} px:{px:.1f} py:{py:.1f} target:({x1:.1f}, {y1:.1f}, {z1:.1f})')
-
-        for _ in move_xyz(x1, y1, z1):
-            yield
 
 
 if __name__ == '__main__':
@@ -528,7 +552,7 @@ if __name__ == '__main__':
 
     params = read_params()
 
-    test_arm_from_screen()
+    # test_arm_from_screen()
 
     marker_ids = params['marker-ids']
     datum_angles = params['datum-angles']
@@ -581,7 +605,7 @@ if __name__ == '__main__':
             sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'px', 'py', 'angle2'], auto_size_columns=False, col_widths=[6]*6, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Approach'), sg.Button('Grab'), sg.Button('Close')]
+        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Approach'), sg.Button('Grab'), sg.Button('Close')]
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -590,9 +614,10 @@ if __name__ == '__main__':
     show_pose(window, pose)
 
     last_capture = time.time()
-    is_first = True
+    is_moving = False
 
     moving = None
+    test_pos = None
 
     while True:
         event, values = window.read(timeout=1)
@@ -637,27 +662,25 @@ if __name__ == '__main__':
             calibrate_angle(event)
 
         elif event == 'Ready':
-            degs = params['ready']
-            for ch, deg in enumerate(degs):
-                window[jKeys[ch]].update(value=deg)
-
-            moving = move_all_joints(degs)
+            moving = move_to_ready()
 
         elif event == 'Pose1':
-            show_pose(window, pose1)
             moving = move_linear(pose1)
 
+        elif event == 'test':
+            moving = test_xyz()
+
         elif event == 'Approach':
-            arm_x, arm_y = get_arm_xy_of_work()
+            arm_x, arm_y, arm_z = get_arm_xyz_of_work()
             if not np.isnan(arm_x):
 
-                moving = approach(arm_x, arm_y)
+                moving = approach(arm_x, arm_y, arm_z)
 
         elif event == 'Grab':
-            arm_x, arm_y = get_arm_xy_of_work()
+            arm_x, arm_y, arm_z = get_arm_xyz_of_work()
             if not np.isnan(arm_x):
 
-                moving = grab(arm_x, arm_y)
+                moving = grab(arm_x, arm_y, arm_z)
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
@@ -672,7 +695,7 @@ if __name__ == '__main__':
                 prepare()
 
         elif event == "Calibrate":
-            moving = Calibrate()        
+            moving = calibrate_xy()        
 
         else:
             if 0.1 < time.time() - last_capture:
@@ -693,52 +716,49 @@ if __name__ == '__main__':
                             be_prepared = prepare()
 
                         if be_prepared:
-                            arm_x, arm_y = get_arm_xy_from_screen(cx, cy)
-                            print(f'screen {int(cx)} {int(cy)} hand:{arm_x:.1f} {arm_y:.1f} {GRAB_Z:.1f}')
-
-                frame, vecs = detect_markers(marker_ids, frame)
-
-                for ch, vec in enumerate(vecs):                    
-                    if vec is None:
-
-                        marker_table[ch, :5] = [np.nan] * 5
-                    else:
-
-                        ivec = [int(x) for x in vec]
-
-                        marker_table[ch, :5] = ivec[:5]
-
-                        # zは常に正
-                        marker_table[ch, 2] = np.abs(marker_table[ch, 2])
+                            arm_x, arm_y, arm_z = get_arm_xyz_from_screen(cx, cy)
+                            print(f'screen {int(cx)} {int(cy)} hand:{arm_x:.1f} {arm_y:.1f} {arm_z:.1f}')
 
                 tcp_height = np.nan
+                if is_moving:
 
-                tcp_cam, tcp_scr = get_tcp()
+                    tcp_cam, tcp_scr = None, None
+                else:
+                    frame, vecs = detect_markers(marker_ids, frame)
 
-                if all(x is not None for x in [tcp_cam, normal_vector, basis_point]):
+                    for ch, vec in enumerate(vecs):                    
+                        if vec is None:
 
-                    tcp_height = abs(normal_vector.dot(tcp_cam - basis_point))
+                            marker_table[ch, :5] = [np.nan] * 5
+                        else:
 
-                window['-tcp-height-'].update(value=f'height:{tcp_height:.1f}')
+                            ivec = [int(x) for x in vec]
 
-                window['-marker-table-'].update(values=marker_table.tolist())
+                            marker_table[ch, :5] = ivec[:5]
+
+                            # zは常に正
+                            marker_table[ch, 2] = np.abs(marker_table[ch, 2])
 
 
-                if values['-show-grid-']:
-                    draw_grid(frame)
+                    tcp_cam, tcp_scr, tcp_height = get_tcp()
 
-                if tcp_scr is not None:
-                    cv2.circle(frame, (int(tcp_scr.x), int(tcp_scr.y)), 5, (0,255,0), -1)
+                    window['-tcp-height-'].update(value=f'height:{tcp_height:.1f}')
 
-                if not np.isnan(cx):
-                    cv2.circle(frame, (int(cx), int(cy)), 10, (255,0,0), -1)
+                    window['-marker-table-'].update(values=marker_table.tolist())
+
+
+                    if values['-show-grid-']:
+                        draw_grid(frame)
+
+                    if tcp_scr is not None:
+                        cv2.circle(frame, (int(tcp_scr.x), int(tcp_scr.y)), 5, (0,255,0), -1)
+
+                    if not np.isnan(cx):
+                        cv2.circle(frame, (int(cx), int(cy)), 10, (255,0,0), -1)
+
+                    if test_pos is not None:
+                        cv2.circle(frame, (int(test_pos.x), int(test_pos.y)), 5, (0,0,255), -1)
 
                 cv2.imshow("camera", frame)
 
                 window.refresh()
-
-                if is_first:
-
-                    is_first = False
-                
-                    cv2.setMouseCallback('camera', mouse_callback)

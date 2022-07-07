@@ -10,7 +10,7 @@ import cv2
 from sklearn.linear_model import LinearRegression
 
 from util import degree, read_params, Vec3
-from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
+from camera import initCamera, closeCamera, getCameraFrame
 
 def make_dark(image, gray_scale):
     h, w = image.shape

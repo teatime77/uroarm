@@ -16,7 +16,7 @@ import cv2
 import subprocess
 
 from util import write_params, read_params
-from camera import initCamera, readCamera, closeCamera, sendImage, camX, camY, Eye2Hand, getCameraFrame
+from camera import initCamera, closeCamera, getCameraFrame
 
 def draw_axis(frame, camera_matrix, dist_coeffs, board, verbose=True):
     corners, ids, rejected_points = cv2.aruco.detectMarkers(frame, dictionary)

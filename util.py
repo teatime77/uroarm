@@ -90,31 +90,6 @@ class Vec3:
     def __sub__(self, other):
         return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
 
-
-
-
-
-
-
-
-
-
-
-
-class Glb:
-    def __init__(self):
-        self.regX = None
-        self.regY = None
-        self.inferX = None
-        self.inferY = None
-        self.prdX = None
-        self.prdY = None
-
-theGlb = Glb()
-
-def getGlb():
-    return theGlb
-
 def sleep(sec):
     start_time = time.time()
     while time.time() - start_time < sec:
