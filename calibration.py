@@ -16,8 +16,9 @@ hand_idx = nax - 1
 
 PICK_Z = 10
 LIFT_Z = 30
+PLACE_Z = 20
 
-pose1 = [ 90, -90, 50, math.pi / 4, math.pi / 2 ]
+pose1 = [ 90, -90, PLACE_Z, math.pi / 4, math.pi / 2 ]
 
 
 rect_pose = [0, ]
@@ -113,7 +114,7 @@ def move_linear(dst):
 
     is_moving = False
 
-def move_xyz(x, y, z):
+def get_pose_from_xyz(x, y, z):
     x_min = 100
     x_max = 300
 
@@ -129,6 +130,21 @@ def move_xyz(x, y, z):
     yaw = - math.atan2(y, x)
     pose = [ x, y, z, yaw, radian(pitch)]
 
+    return pose
+
+def move_xyz_now(x, y, z):
+    pose = get_pose_from_xyz(x, y, z)
+    rad5s = inverse_kinematics(pose)
+
+    if rad5s is not None:
+        deg5s = degree(rad5s) 
+
+        for ch, deg in enumerate(deg5s):
+            set_angle(ch, deg)
+
+
+def move_xyz(x, y, z):
+    pose = get_pose_from_xyz(x, y, z)
     for _ in move_linear(pose):
         yield
 
@@ -345,23 +361,23 @@ def prepare():
 
 def get_arm_xyz_of_work():
     if not be_prepared or inference is None:
-        np.nan, np.nan
+        return [np.nan] * 5
 
     work_scr_x, work_scr_y = inference.get(frame)
     if np.isnan(work_scr_x):
-        return np.nan, np.nan
+        return [np.nan] * 5
 
     arm_x, arm_y, arm_z = get_arm_xyz_from_screen(work_scr_x, work_scr_y)
     print(f'hand {arm_x:.1f} {arm_y:.1f} {arm_z:.1f}')
 
-    return arm_x, arm_y, arm_z
+    return work_scr_x, work_scr_y, arm_x, arm_y, arm_z
 
 def test_xyz():
     global test_pos
 
     h, w = frame.shape[:2]
-    for scr_x in range(w // 3, w * 2 // 3, 70):
-        for scr_y in range(h // 3, h * 2 // 3, 70):
+    for scr_x in np.linspace(w / 3, w * 2 / 3, 4):
+        for scr_y in np.linspace(h // 3, h * 2 // 3, 4):
             arm_x, arm_y, arm_z = get_arm_xyz_from_screen(scr_x, scr_y)
 
             for _ in move_xyz(arm_x, arm_y, LIFT_Z):
@@ -371,12 +387,14 @@ def test_xyz():
                 yield
 
             test_pos = Vec2(scr_x, scr_y)
-            for _ in sleep(2):
+            for _ in sleep(1):
                 yield
             test_pos = None
 
+    for _ in move_to_ready():
+        yield
 
-def approach(arm_x, arm_y, arm_z):
+def approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     print('ready位置へ移動')
     for _ in move_to_ready():
         yield 
@@ -393,26 +411,23 @@ def approach(arm_x, arm_y, arm_z):
     for _ in move_xyz(arm_x, arm_y, arm_z):
         yield
 
-    # for trial in range(10000):
-    #     while np.isnan(tcp_height):
-    #         yield
+    for retry in range(10):
+        while np.isnan(tcp_height):
+            yield
 
-    #     diff = tcp_height - PICK_Z
-    #     print(f'move z trial:{trial} diff:{diff:.1f}')
-    #     if abs(diff) < 3:
-    #         break
+        tcp_cam, tcp_scr, _ = get_tcp()
 
-    #     # PICK_Zの位置に移動する。
-    #     z -= tcp_height - PICK_Z
-    #     for _ in move_xyz(x, y, z):
-    #         yield
+        arm_y += np.sign(work_scr_x - tcp_scr.x)
+        arm_x += np.sign(work_scr_y - tcp_scr.y)
 
+        move_xyz_now(arm_x, arm_y, arm_z)
 
+        for _ in sleep(0.1):
+            yield
 
 
-
-def grab(arm_x, arm_y, arm_z):
-    for _ in approach(arm_x, arm_y, arm_z):
+def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
+    for _ in approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
         yield
 
     while np.isnan(tcp_height):
@@ -472,7 +487,7 @@ if __name__ == '__main__':
     else:
         inference = None
 
-    marker_table = np.array([[0] * 6] * len(marker_ids), dtype=np.float32)
+    marker_table = np.array([[0] * 5] * len(marker_ids), dtype=np.float32)
     layout = [
         [
             sg.Column([
@@ -502,10 +517,10 @@ if __name__ == '__main__':
                 spin('R2', 'R2', 0,   0, 120 )
             ])
             ,
-            sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'px', 'py', 'angle2'], auto_size_columns=False, col_widths=[6]*6, num_rows=len(marker_ids), key='-marker-table-')
+            sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'px', 'py'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Approach'), sg.Button('Grab'), sg.Button('Close')]
+        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -570,17 +585,11 @@ if __name__ == '__main__':
         elif event == 'test':
             moving = test_xyz()
 
-        elif event == 'Approach':
-            arm_x, arm_y, arm_z = get_arm_xyz_of_work()
-            if not np.isnan(arm_x):
-
-                moving = approach(arm_x, arm_y, arm_z)
-
         elif event == 'Grab':
-            arm_x, arm_y, arm_z = get_arm_xyz_of_work()
+            work_scr_x, work_scr_y, arm_x, arm_y, arm_z = get_arm_xyz_of_work()
             if not np.isnan(arm_x):
 
-                moving = grab(arm_x, arm_y, arm_z)
+                moving = grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z)
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
@@ -617,7 +626,6 @@ if __name__ == '__main__':
 
                         if be_prepared:
                             arm_x, arm_y, arm_z = get_arm_xyz_from_screen(cx, cy)
-                            print(f'screen {int(cx)} {int(cy)} hand:{arm_x:.1f} {arm_y:.1f} {arm_z:.1f}')
 
                 tcp_height = np.nan
                 if is_moving:
@@ -629,12 +637,10 @@ if __name__ == '__main__':
                     for ch, vec in enumerate(vecs):                    
                         if vec is None:
 
-                            marker_table[ch, :5] = [np.nan] * 5
+                            marker_table[ch, :] = [np.nan] * 5
                         else:
 
-                            ivec = [int(x) for x in vec]
-
-                            marker_table[ch, :5] = ivec[:5]
+                            marker_table[ch, :] = vec
 
                             # zは常に正
                             marker_table[ch, 2] = np.abs(marker_table[ch, 2])
