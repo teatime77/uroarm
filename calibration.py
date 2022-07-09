@@ -14,7 +14,7 @@ from marker import init_markers, detect_markers
 
 hand_idx = nax - 1
 
-PICK_Z = 10
+PICK_Z = 15
 LIFT_Z = 30
 PLACE_Z = 20
 
@@ -331,11 +331,11 @@ def get_plane():
 
 def get_tcp():
 
-    if np.isnan(marker_table[3:5, :]).any():
+    if np.isnan(marker_table[3:, :]).any():
         return None, None, np.nan
     else:
-        tcp_cam  = marker_table[3:5,  :3].mean(axis=0)
-        tcp_scr  = marker_table[3:5, 3:5].mean(axis=0)
+        tcp_cam  = marker_table[3:,  :3].mean(axis=0)
+        tcp_scr  = marker_table[3:, 3:5].mean(axis=0)
 
         tcp_cam = Vec3(* tcp_cam.tolist())
         tcp_scr = Vec2(* tcp_scr.tolist())
@@ -517,7 +517,7 @@ if __name__ == '__main__':
                 spin('R2', 'R2', 0,   0, 120 )
             ])
             ,
-            sg.Table(marker_table.tolist(), headings=['x', 'y', 'z', 'px', 'py'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
+            sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
         [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
@@ -650,7 +650,7 @@ if __name__ == '__main__':
 
                     window['-tcp-height-'].update(value=f'height:{tcp_height:.1f}')
 
-                    window['-marker-table-'].update(values=marker_table.tolist())
+                    window['-marker-table-'].update(values=np.round(marker_table).tolist())
 
 
                     if values['-show-grid-']:
