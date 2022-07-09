@@ -156,30 +156,6 @@ def move_to_ready():
     for _ in move_all_joints(degs):
         yield
 
-def calibrate_angle(event):
-    ch, idx = [ int(x) for x in event.split('-')[3:5] ]
-
-    datum_servo_angles[ch, idx] = servo_angles[ch]
-    window[event].update(button_color=('white', 'blue'))
-
-    servo1, servo2 = datum_servo_angles[ch, :]
-    if np.isnan(servo1) or np.isnan(servo2):
-        return
-
-    angle1, angle2 = datum_angles[ch]
-
-    # scale * angle1 + offset = servo1
-    # scale * angle2 + offset = servo2
-
-    offset = (angle2 * servo1 - angle1 * servo2) / (angle2 - angle1)
-    if abs(angle1) < abs(angle2):
-        scale = (servo2 - offset) / angle2
-    else:
-        scale = (servo1 - offset) / angle1
-
-    set_servo_param(ch, scale, offset)
-
-    window[jKeys[ch]].update(value=int(servo_to_angle(ch, servo_angles[ch])))
 
 def calibrate_xy():
     tcp_scrs = []
@@ -281,29 +257,6 @@ def calibrate_xy():
         f.write(f'{scr_x}, {scr_y}, {height}, {arm_x}, {arm_y}, {arm_z}, {prd_arm_x}, {prd_arm_y}, {prd_arm_z}\n')
 
     f.close()
-
-
-
-
-def draw_grid(frame):
-    h, w, _ = frame.shape
-
-    for y in range(0, h, h // 20):
-        cv2.line(frame, (0, y), (w, y), (255, 0, 0))
-
-    for x in range(0, w, w // 20):
-        cv2.line(frame, (x, 0), (x, h), (255, 0, 0))
-
-    cx, cy = w // 2, h // 2
-    r = math.sqrt(cx * cx + cy * cy)
-
-    x1, y1 = r * np.cos(radian(30)), r * np.sin(radian(30)), 
-    cv2.line(frame, (int(cx - x1), int(cy + y1)), (int(cx + x1), int(cy - y1)), (255, 0, 0), thickness=2)
-    cv2.line(frame, (int(cx - x1), int(cy - y1)), (int(cx + x1), int(cy + y1)), (255, 0, 0), thickness=2)
-    
-    x1, y1 = r * np.cos(radian(60)), r * np.sin(radian(60)), 
-    cv2.line(frame, (int(cx - x1), int(cy + y1)), (int(cx + x1), int(cy - y1)), (255, 0, 0), thickness=2)
-    cv2.line(frame, (int(cx - x1), int(cy - y1)), (int(cx + x1), int(cy + y1)), (255, 0, 0), thickness=2)
 
 
 def show_next_pose(ch, servo_deg):
@@ -470,9 +423,6 @@ if __name__ == '__main__':
     params = read_params()
 
     marker_ids = params['marker-ids']
-    datum_angles = params['datum-angles']
-
-    datum_servo_angles = np.full((nax, 2), np.nan)
 
     init_servo(params)
     init_markers(params)
@@ -497,16 +447,8 @@ if __name__ == '__main__':
             ])
             ,
             sg.Column([
-                spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 150, True) + [ 
-                    sg.Text('', key=f'-yaw-{ch+1}-'), 
-                    sg.Text('', key=f'-angle-{ch+1}-'), 
-                    sg.Text('', key=f'-vec-{ch+1}-')
-                ]
+                spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 150, True) 
                 for ch, deg in enumerate(servo_angles)
-            ])
-            ,
-            sg.Column([
-                [ sg.Button(f'{a}', key=f'-datum-angle-{ch}-0-', size=(4,1)), sg.Button(f'{b}', key=f'-datum-angle-{ch}-1-', size=(4,1)) ] for ch, (a, b) in enumerate(datum_angles) 
             ])
             ,
             sg.Column([
@@ -520,7 +462,7 @@ if __name__ == '__main__':
             sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
-        [ sg.Checkbox('grid', default=False, key='-show-grid-'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
+        [ sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -572,9 +514,6 @@ if __name__ == '__main__':
         elif event in pose_keys:
             pose = get_pose(values)
             moving = move_linear(pose)
-
-        elif event.startswith('-datum-angle-'):
-            calibrate_angle(event)
 
         elif event == 'Ready':
             moving = move_to_ready()
@@ -653,8 +592,6 @@ if __name__ == '__main__':
                     window['-marker-table-'].update(values=np.round(marker_table).tolist())
 
 
-                    if values['-show-grid-']:
-                        draw_grid(frame)
 
                     if tcp_scr is not None:
                         cv2.circle(frame, (int(tcp_scr.x), int(tcp_scr.y)), 5, (0,255,0), -1)
