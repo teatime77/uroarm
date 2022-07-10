@@ -14,11 +14,13 @@ from marker import init_markers, detect_markers
 
 hand_idx = nax - 1
 
-PICK_Z = 15
+CALIBRATION_Z = 20
+PICK_Z = 10
 LIFT_Z = 30
 PLACE_Z = 20
 
-pose1 = [ 90, -90, PLACE_Z, math.pi / 4, math.pi / 2 ]
+pose1 = [ 90, -90, LIFT_Z, math.pi / 4, math.pi / 2 ]
+pose2 = [ 90, -90, PLACE_Z, math.pi / 4, math.pi / 2 ]
 
 
 rect_pose = [0, ]
@@ -72,11 +74,11 @@ def move_all_joints(dsts):
     is_moving = False
 
 def open_hand():
-    for _ in move_joint(hand_idx, 50):
+    for _ in move_joint(hand_idx, 100):
         yield
 
 def close_hand():
-    for _ in move_joint(hand_idx, 20):
+    for _ in move_joint(hand_idx, 30):
         yield
 
 def move_linear(dst):
@@ -119,9 +121,9 @@ def get_pose_from_xyz(x, y, z):
     x_max = 300
 
     pitch_min = 90
-    pitch_max = 45
+    pitch_max = 60
 
-    assert x_min <= x and x <= x_max
+    assert x_min <= x and x <= x_max, f'get pose from xyz:{x_min:.1f} {x:.1f} {x_max:.1f}'
 
     r = (x - x_min) / (x_max - x_min)
 
@@ -161,17 +163,9 @@ def calibrate_xy():
     tcp_scrs = []
     arm_xyz = []
 
-    ys = [-80, 0, 80]
-    xs = [120, 190, 250]
-    # ys = [-60, 60]
-    # xs = [150, 250]
-
-    f = open('data/calibrate-xy.csv', 'w')
-    f.write('scr-x, scr-y, tcp-height, arm-x, arm-y, arm-z, prd-arm-x, prd-arm-y\n')
-
     tcp_heights = []
-    for arm_y in ys:
-        for arm_x in xs:
+    for arm_y in np.linspace(-80, 80, 5):
+        for arm_x in np.linspace(120, 250, 5):
             print(f'start move x:{arm_x} y:{arm_y}')
 
             # z = LIFT_Zの位置に移動する。
@@ -187,13 +181,13 @@ def calibrate_xy():
                 while np.isnan(tcp_height):
                     yield
 
-                diff = tcp_height - PICK_Z
-                print(f'move z trial:{trial} diff:{diff:.1f}')
-                if abs(diff) < 5:
+                diff = tcp_height - CALIBRATION_Z
+                print(f'move z trial:{trial} height:{tcp_height:.1f}')
+                if abs(diff) < 2:
                     break
 
                 # PICK_Zの位置に移動する。
-                arm_z -= tcp_height - PICK_Z
+                arm_z -= diff
                 for _ in move_xyz(arm_x, arm_y, arm_z):
                     yield
 
@@ -211,7 +205,7 @@ def calibrate_xy():
             tcp_scrs.append([tcp_scr.x, tcp_scr.y])
 
             # z = LIFT_Zの位置に移動する。
-            for _ in move_xyz(arm_x, arm_y, LIFT_Z):
+            for _ in move_xyz(arm_x, arm_y, 50):
                 yield
 
     for _ in move_to_ready():
@@ -248,15 +242,18 @@ def calibrate_xy():
         dx, dy, dz = B[i, :]
         print(f'dxyz 2:{dx:.1f} {dy:.1f} {dz:.1f}')
 
-    for (arm_x, arm_y, arm_z), height, (scr_x, scr_y) in zip(arm_xyz, tcp_heights, tcp_scrs):
-        X = np.array([[scr_x, scr_y]])
+    with open('data/calibrate-xy.csv', 'w') as f:
 
-        prd = reg.predict(X)
-        prd_arm_x, prd_arm_y, prd_arm_z = prd[0, :]
+        f.write('scr-x,scr-y,tcp-height,arm-x,arm-y,arm-z,prd-arm-x,prd-arm-y,prd-arm-z\n')
 
-        f.write(f'{scr_x}, {scr_y}, {height}, {arm_x}, {arm_y}, {arm_z}, {prd_arm_x}, {prd_arm_y}, {prd_arm_z}\n')
+        for (arm_x, arm_y, arm_z), height, (scr_x, scr_y) in zip(arm_xyz, tcp_heights, tcp_scrs):
+            X = np.array([[scr_x, scr_y]])
 
-    f.close()
+            prd = reg.predict(X)
+            prd_arm_x, prd_arm_y, prd_arm_z = prd[0, :]
+
+            f.write(f'{scr_x}, {scr_y}, {height}, {arm_x}, {arm_y}, {arm_z}, {prd_arm_x}, {prd_arm_y}, {prd_arm_z}\n')
+
 
 
 def show_next_pose(ch, servo_deg):
@@ -280,7 +277,8 @@ def get_plane():
 
     norm = (p2 - p1).cross(p3 - p1).unit()
 
-    return norm, p1
+    p = (1.0 / 3.0) * (p1 + p2 + p3)
+    return norm, p
 
 def get_tcp():
 
@@ -361,22 +359,10 @@ def approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
         yield
 
     print('把持位置を下げる。')
-    for _ in move_xyz(arm_x, arm_y, arm_z):
+    z = arm_z - (CALIBRATION_Z - PICK_Z)
+    for _ in move_xyz(arm_x, arm_y, z):
         yield
 
-    for retry in range(10):
-        while np.isnan(tcp_height):
-            yield
-
-        tcp_cam, tcp_scr, _ = get_tcp()
-
-        arm_y += np.sign(work_scr_x - tcp_scr.x)
-        arm_x += np.sign(work_scr_y - tcp_scr.y)
-
-        move_xyz_now(arm_x, arm_y, arm_z)
-
-        for _ in sleep(0.1):
-            yield
 
 
 def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
@@ -390,19 +376,20 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     for _ in close_hand():
         yield
 
-    for _ in sleep(3):
+    for _ in sleep(2):
         yield
 
     print('ワークを持ち上げる。')
     for _ in move_xyz(arm_x, arm_y, LIFT_Z):
         yield
 
-    print('ready位置へ移動')
-    for _ in move_to_ready():
-        yield 
+
+    print('ワークのリフト位置へ移動')
+    for _ in move_linear(pose1):
+        yield
 
     print('ワークのプレース位置へ移動')
-    for _ in move_linear(pose1):
+    for _ in move_linear(pose2):
         yield
 
     print('ハンドを開く。')
