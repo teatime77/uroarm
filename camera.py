@@ -3,10 +3,10 @@
 
 import cv2
 
-def initCamera():
+def initCamera(params):
     global cap, WIDTH, HEIGHT
 
-    cap = cv2.VideoCapture(0) # 任意のカメラ番号に変更する
+    cap = cv2.VideoCapture(params['camera-index'])
 
     print('BRIGHTNESS', cap.get(cv2.CAP_PROP_BRIGHTNESS))
     print('EXPOSURE'  , cap.get(cv2.CAP_PROP_EXPOSURE))

@@ -5,6 +5,7 @@
     https://gist.github.com/naoki-mizuno/c80e909be82434ddae202ff52ea1f80a
 """
 ### 
+import sys
 import time
 import cv2
 from cv2 import aruco
@@ -14,12 +15,46 @@ from util import write_params, read_params
 from camera import initCamera, closeCamera, getCameraFrame
 
 
+def make_board():
+    dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
+
+    squares_x = 5
+    squares_y = 7
+    square_length_meter = 0.04
+    marker_length_meter = 0.02
+    charucoBoard = aruco.CharucoBoard_create(squares_x, squares_y, square_length_meter, marker_length_meter, dictionary)
+
+    square_length_mm = 1000 * square_length_meter
+
+    # mm to inch
+    mm_to_inch = 1 / 25.4
+
+    # dots per inch
+    dpi = 350
+
+    image_x_pixel = round(squares_x * square_length_mm * mm_to_inch * dpi)
+    image_y_pixel = round(squares_y * square_length_mm * mm_to_inch * dpi)
+    
+    image = charucoBoard.draw((image_x_pixel, image_y_pixel))
+
+    file_path = f'data/marker/board4x4.png'
+    cv2.imwrite(file_path, image)
+
+    print(f'board image file is created: {file_path}')
+
 if __name__ == '__main__':
 
-    initCamera()
+    if len(sys.argv) == 2 and sys.argv[1] == 'make':
+        make_board()
+
+        sys.exit(0)
+
+    params = read_params()
+    
+    initCamera(params)
 
     dictionary_name = '4X4_50'
-    dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_50) #  DICT_5X5_50
+    dictionary = aruco.getPredefinedDictionary(aruco.DICT_4X4_50)
 
     squares_x = 5
     squares_y = 7

@@ -3,7 +3,6 @@ import math
 import numpy as np
 import PySimpleGUI as sg
 import json
-from camera import initCamera, closeCamera
 from util import nax, jKeys, radian, write_params, spin, spin2, degree, Vec2, arctan2p
 from servo import servo_to_angle
 

@@ -75,7 +75,7 @@ if __name__ == '__main__':
     datum_servo_angles = np.full((nax, 2), np.nan)
 
     init_servo(params)
-    initCamera()
+    initCamera(params)
 
     layout = [
         [

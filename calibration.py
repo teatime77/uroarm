@@ -162,51 +162,50 @@ def move_to_ready():
 def calibrate_xy():
     tcp_scrs = []
     arm_xyz = []
-
     tcp_heights = []
-    for arm_y in np.linspace(-80, 80, 5):
-        for arm_x in np.linspace(120, 250, 5):
-            print(f'start move x:{arm_x} y:{arm_y}')
+    num_trial = 2
+    num_points = 3
 
-            # z = LIFT_Zの位置に移動する。
-            arm_z = LIFT_Z
-            for _ in move_xyz(arm_x, arm_y, arm_z):
-                yield
-            
-            print("move xy end")
-            for _ in sleep(3):
-                yield
+    for _ in range(num_trial):
+        for arm_y in np.linspace(-80, 80, num_points):
+            for arm_x in np.linspace(120, 250, num_points):
+                print(f'start move x:{arm_x} y:{arm_y}')
 
-            for trial in range(10000):
-                while np.isnan(tcp_height):
-                    yield
-
-                diff = tcp_height - CALIBRATION_Z
-                print(f'move z trial:{trial} height:{tcp_height:.1f}')
-                if abs(diff) < 2:
-                    break
-
-                # PICK_Zの位置に移動する。
-                arm_z -= diff
+                # z = LIFT_Zの位置に移動する。
+                arm_z = LIFT_Z
                 for _ in move_xyz(arm_x, arm_y, arm_z):
                     yield
+                
+                print("move xy end")
+                for _ in sleep(3):
+                    yield
 
-            for _ in sleep(3):
-                yield
+                for trial in range(10000):
+                    while np.isnan(tcp_height):
+                        yield
 
-            print(f'move z end:{tcp_height:.1f}')
+                    diff = tcp_height - CALIBRATION_Z
+                    print(f'move z trial:{trial} height:{tcp_height:.1f}')
+                    if abs(diff) < 2:
+                        break
 
-            while np.isnan(tcp_height):
-                yield
+                    # PICK_Zの位置に移動する。
+                    arm_z -= diff
+                    for _ in move_xyz(arm_x, arm_y, arm_z):
+                        yield
 
-            tcp_heights.append(tcp_height)
+                    for _ in sleep(1):
+                        yield
 
-            arm_xyz.append([arm_x, arm_y, arm_z])
-            tcp_scrs.append([tcp_scr.x, tcp_scr.y])
+                print(f'move z end:{tcp_height:.1f}')
 
-            # z = LIFT_Zの位置に移動する。
-            for _ in move_xyz(arm_x, arm_y, 50):
-                yield
+                tcp_heights.append(tcp_height)
+                arm_xyz.append([arm_x, arm_y, arm_z])
+                tcp_scrs.append([tcp_scr.x, tcp_scr.y])
+
+                # z = LIFT_Zの位置に移動する。
+                for _ in move_xyz(arm_x, arm_y, 50):
+                    yield
 
     for _ in move_to_ready():
         yield 
@@ -271,15 +270,6 @@ def get_arm_xyz_from_screen(scr_x, scr_y):
 
     return arm_x, arm_y, arm_z
 
-
-def get_plane():
-    p1, p2, p3 = [ Vec3(*xyz ) for xyz in marker_table[:3, :3].tolist() ]
-
-    norm = (p2 - p1).cross(p3 - p1).unit()
-
-    p = (1.0 / 3.0) * (p1 + p2 + p3)
-    return norm, p
-
 def get_tcp():
 
     if np.isnan(marker_table[3:, :]).any():
@@ -299,19 +289,32 @@ def get_tcp():
 
         return tcp_cam, tcp_scr, tcp_height
 
-def prepare():
-    global normal_vector, basis_point, camera_pred_x, camera_pred_y
+def set_plane(vecs):
+    if any(vec is None for vec in vecs):
+        plane_points.clear()
+        return None, None
 
-    if np.isnan(marker_table[:, :3]).any():
-        return False
+    plane_points.append(vecs)
 
-    # 平面の法線ベクトルと、平面上の1点
-    normal_vector, basis_point = get_plane()
+    if len(plane_points) < 10:
+        return None, None
 
-    return True
+    points_samples = np.array(plane_points)
+    assert points_samples.shape == (10, 3, 5)
+
+    points = points_samples.mean(axis=0)
+    assert points.shape == (3, 5)
+
+    p1, p2, p3 = [ Vec3(*xyz ) for xyz in points[:, :3].tolist() ]
+
+    normal_vector = (p2 - p1).cross(p3 - p1).unit()
+
+    basis_point = (1.0 / 3.0) * (p1 + p2 + p3)
+
+    return normal_vector, basis_point
 
 def get_arm_xyz_of_work():
-    if not be_prepared or inference is None:
+    if inference is None:
         return [np.nan] * 5
 
     work_scr_x, work_scr_y = inference.get(frame)
@@ -403,9 +406,9 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
 
 
 if __name__ == '__main__':
+    plane_points = []
     normal_vector = None
     basis_point = None
-    be_prepared = False
 
     params = read_params()
 
@@ -413,7 +416,7 @@ if __name__ == '__main__':
 
     init_servo(params)
     init_markers(params)
-    initCamera()
+    initCamera(params)
 
 
     if len(sys.argv) == 2:
@@ -449,7 +452,7 @@ if __name__ == '__main__':
             sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
-        [ sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Prepare'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
+        [ sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -525,10 +528,6 @@ if __name__ == '__main__':
             closeCamera()
             break
 
-        elif event == 'Prepare':
-            if not np.isnan(marker_table[:, :3]).any():
-                prepare()
-
         elif event == "Calibrate":
             moving = calibrate_xy()        
 
@@ -545,13 +544,6 @@ if __name__ == '__main__':
                             cx, cy = inference.get(frame)
                         else:
                             cx, cy = inference.cx, inference.cy
-
-                    if not np.isnan(cx):
-                        if not be_prepared:
-                            be_prepared = prepare()
-
-                        if be_prepared:
-                            arm_x, arm_y, arm_z = get_arm_xyz_from_screen(cx, cy)
 
                 tcp_height = np.nan
                 if is_moving:
@@ -571,14 +563,16 @@ if __name__ == '__main__':
                             # zは常に正
                             marker_table[ch, 2] = np.abs(marker_table[ch, 2])
 
+                    if normal_vector is None:
+                     
+                        normal_vector, basis_point = set_plane(vecs[:3])
+
 
                     tcp_cam, tcp_scr, tcp_height = get_tcp()
 
                     window['-tcp-height-'].update(value=f'height:{tcp_height:.1f}')
 
                     window['-marker-table-'].update(values=np.round(marker_table).tolist())
-
-
 
                     if tcp_scr is not None:
                         cv2.circle(frame, (int(tcp_scr.x), int(tcp_scr.y)), 5, (0,255,0), -1)

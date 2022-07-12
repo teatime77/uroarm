@@ -10,41 +10,9 @@ import cv2
 from sklearn.linear_model import LinearRegression
 
 from util import degree, read_params, Vec3
-from camera import initCamera, closeCamera, getCameraFrame
 
-def make_dark(image, gray_scale):
-    h, w = image.shape
-    bgr = np.zeros((h, w, 3))
-    for i in range(3):
-        bgr[:,:,i] = np.where(image == 0, (i + 1) * gray_scale, 255)
 
-    return bgr
-
-def nxn(dt):
-    if dt == aruco.DICT_4X4_50:
-        return '4x4'
-    else:
-        return '5x5'
-
-def make_board(dt):
-    aruco = cv2.aruco
-    dictionary = aruco.getPredefinedDictionary(dt)
-
-    squares_x = 5
-    squares_y = 7
-    square_length = 0.04
-    marker_length = 0.02
-    charucoBoard = aruco.CharucoBoard_create(squares_x, squares_y, square_length, marker_length, dictionary)
-
-    image_x = round(5 * 40 / 25.4 * 350)
-    image_y = round(7 * 40 / 25.4 * 350)
-    image = charucoBoard.draw((image_x, image_y))
-
-    # bgr = make_dark(image, gray_scale)
-
-    cv2.imwrite(f'data/marker/board{nxn(dt)}.png', image)
-
-def make_markers(dt):
+def make_markers():
     ### --- parameter --- ###
 
     # マーカーの保存先
@@ -57,7 +25,7 @@ def make_markers(dt):
 
     ### --- マーカーを生成して保存する --- ###
     # マーカー種類を呼び出し
-    dict_aruco = aruco.Dictionary_get(dt)
+    dict_aruco = aruco.Dictionary_get(aruco.DICT_4X4_50)
 
     mg = size_mark // 2
     bg = np.full(( cols * (mg + size_mark) + mg, cols * (mg + size_mark) + mg), 255, dtype=np.uint8)
@@ -74,13 +42,22 @@ def make_markers(dt):
 
         bg[y:y+size_mark, x:x+size_mark] = img_mark
 
-    # bg = make_dark(bg, gray_scale)
-    cv2.imwrite(f'{dir_mark}/markers{nxn(dt)}.jpg', bg)        
+    for iy in range(2 * cols + 1):
+        for ix in range(2 * cols + 1):
 
-def make_board_and_markers():
-    for dt in [aruco.DICT_4X4_50, aruco.DICT_5X5_50]:
-        make_board(dt)
-        make_markers(dt)
+            if ix % 2 == 1 and iy % 2 == 1:
+                continue
+
+            x = mg // 2 + ix * (size_mark + mg) // 2
+            y = mg // 2 + iy * (size_mark + mg) // 2
+
+            mg2 = mg // 8
+            cv2.line(bg, (x - mg2, y), (x + mg2, y), (0,))
+            cv2.line(bg, (x, y - mg2), (x, y + mg2), (0,))
+
+    # bg = make_dark(bg, gray_scale)
+    cv2.imwrite(f'{dir_mark}/markers4x4.png', bg)        
+
 
 def init_markers(params):
     global dictionary, camera_matrix, dist_coeffs
@@ -131,3 +108,6 @@ def detect_markers(marker_ids, frame):
         vecs[idx] = np.concatenate([tvec, pxy])
 
     return frame, vecs
+
+if __name__ == '__main__':
+    make_markers()
