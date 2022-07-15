@@ -1,3 +1,5 @@
+import os
+import sys
 import math
 import time
 import json
@@ -54,7 +56,6 @@ class Vec2:
 
     def __sub__(self, other):
         return Vec2(self.x - other.x, self.y - other.y)
-
 
 class Vec3:
     def __init__(self, x, y, z):
@@ -115,11 +116,26 @@ def arctan2p(y, x):
         return 2 * np.pi + rad
 
 def write_params(params):
-    with open('data/arm.json', 'w') as f:
+    with open('arm.json', 'w') as f:
         json.dump(params, f, indent=4)
 
 def read_params():
-    with open('data/arm.json', 'r') as f:
+    if not os.path.isfile('arm.json'):
+
+        params = {
+            "COM": "COM?",
+            "camera-index": 0,
+            "prev-servo": [ 90 ] * 6,
+            "servo-angle": [[ 1, 90]] * 6,
+            "marker-ids": [ 1, 2, 3, 4, 5 ]
+        }
+
+        write_params(params)
+
+        print('arm.json is created.')
+        sys.exit(0)
+
+    with open('arm.json', 'r') as f:
         params = json.load(f)
 
     return params

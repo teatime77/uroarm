@@ -35,11 +35,11 @@ def init_servo(params_arg):
 
     params = params_arg
 
-    for ch, deg in enumerate(params['servo-angles']):
+    for ch, deg in enumerate(params['prev-servo']):
         servo_angles[ch] = deg
 
     com_port = params['COM'] 
-    servo_param = params['calibration']['servo']
+    servo_param = params['servo-angle']
 
     try:
         ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
@@ -49,7 +49,7 @@ def init_servo(params_arg):
 
 def set_servo_param(ch, scale, offset):
     servo_param[ch] = [scale, offset]
-    params['calibration']['servo'][ch] = [scale, offset]
+    params['servo-angle'][ch] = [scale, offset]
 
     write_params(params)
 
@@ -123,10 +123,12 @@ if __name__ == '__main__':
             spin(f'J{i+1}', f'J{i+1}-servo', int(servo_angles[i]), -120, 120, True) for i in range(nax)
         ]
         +
-        [ sg.Button('Ready'), sg.Button('Close') ]
+        [ sg.Text('', size=(15,1)) ]
+        +
+        [ sg.Button('Close') ]
     ]
 
-    window = sg.Window('Servomotor', layout, element_justification='c') # disable_minimize=True, 
+    window = sg.Window('Servo', layout, element_justification='c') # disable_minimize=True, 
 
     moving = None
 
@@ -141,7 +143,7 @@ if __name__ == '__main__':
                 moving = None
                 print('========== stop moving ==========')
 
-                params['servo-angles'] = servo_angles
+                params['prev-servo'] = servo_angles
                 write_params(params)
 
         if event in servo_angle_keys:
@@ -152,7 +154,7 @@ if __name__ == '__main__':
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
-            params['servo-angles'] = servo_angles
+            params['prev-servo'] = servo_angles
             write_params(params)
 
             break

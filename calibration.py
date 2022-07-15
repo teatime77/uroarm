@@ -151,7 +151,8 @@ def move_xyz(x, y, z):
         yield
 
 def move_to_ready():
-    degs = params['ready']
+    degs = [ 0, 0, -90, -90, 0, 0 ]
+
     for ch, deg in enumerate(degs):
         window[jKeys[ch]].update(value=deg)
 
@@ -220,13 +221,10 @@ def calibrate_xy():
     print('coef_', type(reg.coef_), reg.coef_)
     print('intercept_', type(reg.intercept_), reg.intercept_)
 
-    params['calibration']['hand-eye'] = {
+    params['hand-eye'] = {
         'coef': reg.coef_.tolist(), 
         'intercept': reg.intercept_.tolist()
     }
-
-    params['X'] = X.tolist()
-    params['Y'] = Y.tolist()
 
     write_params(params)
 
@@ -263,8 +261,12 @@ def show_next_pose(ch, servo_deg):
     show_pose(window, pose)
 
 def get_arm_xyz_from_screen(scr_x, scr_y):
-    coef = np.array(params['calibration']['hand-eye']['coef'])
-    intercept = np.array(params['calibration']['hand-eye']['intercept'])
+    if not 'hand-eye' in params:
+        print('No hand-eye calibration')
+        sys.exit(0)
+
+    coef = np.array(params['hand-eye']['coef'])
+    intercept = np.array(params['hand-eye']['intercept'])
 
     arm_x, arm_y, arm_z = coef.dot(np.array([scr_x, scr_y])) + intercept
 
@@ -477,7 +479,7 @@ if __name__ == '__main__':
                 moving = None
                 print('========== stop moving ==========')
 
-                params['servo-angles'] = servo_angles
+                params['prev-servo'] = servo_angles
                 write_params(params)
 
         if event in servo_angle_keys:
@@ -522,7 +524,7 @@ if __name__ == '__main__':
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
-            params['servo-angles'] = servo_angles
+            params['prev-servo'] = servo_angles
             write_params(params)
 
             closeCamera()

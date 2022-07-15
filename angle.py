@@ -10,6 +10,33 @@ from camera import initCamera, closeCamera, getCameraFrame
 from calibration import move_joint
 import numpy as np
 
+datum_angles = [
+    [
+        -60,
+        60
+    ],
+    [
+        0,
+        -90
+    ],
+    [
+        0,
+        -90
+    ],
+    [
+        0,
+        -90
+    ],
+    [
+        -60,
+        60
+    ],
+    [
+        0,
+        100
+    ]
+]
+
 
 def spin3(ch, label, key, val1, val2, min_val, max_val, a, b, bind_return_key = True):
 
@@ -70,8 +97,6 @@ if __name__ == '__main__':
 
     params = read_params()
 
-    datum_angles = params['datum-angles']
-
     datum_servo_angles = np.full((nax, 2), np.nan)
 
     init_servo(params)
@@ -108,7 +133,7 @@ if __name__ == '__main__':
                 moving = None
                 print('========== stop moving ==========')
 
-                params['servo-angles'] = servo_angles
+                params['prev-servo'] = servo_angles
                 write_params(params)
 
         if event in servo_angle_keys:
@@ -119,7 +144,10 @@ if __name__ == '__main__':
 
         elif event in jKeys:
             ch = jKeys.index(event)
-            deg = float(values[event])
+            try:
+                deg = float(values[event])
+            except ValueError:
+                continue
 
             servo_deg = angle_to_servo(ch, deg)
 
@@ -132,7 +160,7 @@ if __name__ == '__main__':
 
         elif event == sg.WIN_CLOSED or event == 'Close':
 
-            params['servo-angles'] = servo_angles
+            params['prev-servo'] = servo_angles
             write_params(params)
 
             closeCamera()
