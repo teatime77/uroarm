@@ -454,7 +454,7 @@ if __name__ == '__main__':
             sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
         ]
         ,
-        [ sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
+        [ sg.Button('Reset'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
     ]
 
     window = sg.Window('calibration', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -531,7 +531,12 @@ if __name__ == '__main__':
             break
 
         elif event == "Calibrate":
-            moving = calibrate_xy()        
+            moving = calibrate_xy()   
+
+        elif event == 'Reset':     
+            normal_vector = None
+            basis_point = None
+            plane_points.clear()
 
         else:
             if 0.1 < time.time() - last_capture:
