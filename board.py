@@ -91,8 +91,12 @@ if __name__ == '__main__':
             c_corners   = None
             c_ids       = None
 
+        if frame.shape[0] == 720:
+            frame2 = frame
+        else:
+            frame2 = cv2.resize(frame, (720, 720))
 
-        cv2.imshow("camera", frame)
+        cv2.imshow("camera", frame2)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 

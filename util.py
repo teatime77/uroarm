@@ -116,26 +116,26 @@ def arctan2p(y, x):
         return 2 * np.pi + rad
 
 def write_params(params):
-    with open('arm.json', 'w') as f:
+    with open('data/arm.json', 'w') as f:
         json.dump(params, f, indent=4)
 
 def read_params():
-    if not os.path.isfile('arm.json'):
+    if not os.path.isfile('data/arm.json'):
 
         params = {
             "COM": "COM?",
             "camera-index": 0,
             "prev-servo": [ 90 ] * 6,
             "servo-angle": [[ 1, 90]] * 6,
-            "marker-ids": [ 1, 2, 3, 4, 5 ]
+            "marker-ids": [ 0, 1, 2, 3, 4 ]
         }
 
         write_params(params)
 
-        print('arm.json is created.')
+        print('data/arm.json is created.')
         sys.exit(0)
 
-    with open('arm.json', 'r') as f:
+    with open('data/arm.json', 'r') as f:
         params = json.load(f)
 
     return params
@@ -143,7 +143,7 @@ def read_params():
 def spin(label, key, val, min_val, max_val, bind_return_key = True):
 
     return [ 
-        sg.Text(label),
+        sg.Text(label, size=(4, 1)),
         sg.Spin(list(range(min_val, max_val + 1)), initial_value=val, size=(5, 1), key=key, enable_events=not bind_return_key, bind_return_key=bind_return_key )
     ]
 

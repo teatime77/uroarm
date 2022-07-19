@@ -6,7 +6,7 @@ import json
 from util import nax, jKeys, radian, write_params, spin, spin2, degree, Vec2, arctan2p
 from servo import servo_to_angle
 
-L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 167 - 10 ]
+L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 167 - 20 ]
 
 def arr(v):
     if isinstance(v, np.ndarray):

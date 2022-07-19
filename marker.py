@@ -31,7 +31,7 @@ def detect_markers(marker_ids, frame):
 
     aruco.drawDetectedMarkers(frame, corners, ids)            
 
-    marker_length = 13.5
+    marker_length = 15
     
     vecs = [None] * len(marker_ids)
 

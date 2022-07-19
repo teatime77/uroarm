@@ -9,6 +9,8 @@ import openvino
 from openvino.runtime import Core
 from openvino.pyopenvino import ConstOutput
 import time
+from util import read_params
+from camera import initCamera, getCameraFrame, closeCamera
 
 def getInputImg(bmp):
 
@@ -76,6 +78,9 @@ def infer_img(img_que : Queue, result_que : Queue):
 
     while True:
         bmp = img_que.get()
+        if bmp is None:
+            result_que.put((np.nan, np.nan))
+            break
 
         img = getInputImg(bmp)
 
@@ -120,13 +125,27 @@ class Inference():
         self.pw = Process(target=infer_img, args=(self.img_que, self.result_que))
 
         self.pw.start()
+    
+    def get(self, frame):
+        h, w = frame.shape[:2]
+        assert h == w
 
-    def put(self, bmp):
-        self.img_que.put(bmp)
+        if self.img_que.empty():
 
-    def get_nowait(self):
+            if h == 720:
+                frame2 = frame
+            else:
+                frame2 = cv2.resize(frame, (720, 720))
+
+            self.img_que.put(frame2)
+
         try:
             cx, cy = self.result_que.get_nowait()
+
+            assert not np.isnan(cx) and not np.isnan(cy)
+
+            cx = cx * w // 720
+            cy = cy * h // 720
 
             self.cx = cx
             self.cy = cy
@@ -136,50 +155,40 @@ class Inference():
 
         return self.cx, self.cy
 
-    def get_OLD(self, bmp):
-        self.put(bmp)
+    def close(self):
+        self.img_que.put(None)
+
         while True:
-            cx, cy = self.get_nowait()
-            if not np.isnan(cx):
-                return cx, cy
-
-            time.sleep(0.1)
-    
-    def get(self, bmp):
-        if self.img_que.empty():
-            self.put(bmp)
-
-        return self.get_nowait()
-       
+            cx, cy = self.result_que.get()
+            if np.isnan(cx):
+                break
 
 
 if __name__ == '__main__':
     freeze_support()
 
-    cv2.namedWindow('window')
+    params = read_params()
+    initCamera(params)
 
-    cap = cv2.VideoCapture(0) # 任意のカメラ番号に変更する
+    cv2.namedWindow('window')
 
     inference = Inference()
 
-    ret, bmp = cap.read()
-    inference.put(bmp)
 
     cx, cy = (None, None)
     while True:
-        ret, bmp = cap.read()
+        frame = getCameraFrame()
 
-        ret = inference.get_nowait()
-        if ret is not None:
-            cx, cy = ret
-            inference.put(bmp)
+        cx, cy = inference.get(frame)
 
-        if cx is not None:
+        if not np.isnan(cx):
+            cv2.circle(frame, (int(cx), int(cy)), 10, (255,0,0), -1)
 
-            cv2.circle(bmp, (int(cx), int(cy)), 10, (255,255,255), -1)
 
-        cv2.imshow('window', bmp)
+        cv2.imshow('window', frame)
         k = cv2.waitKey(1)
-        # if k == ord('q'):
-        #     break
+        if k == ord('q'):
+            inference.close()
+            closeCamera()
+            break
 

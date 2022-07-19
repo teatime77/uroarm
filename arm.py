@@ -14,12 +14,13 @@ from marker import init_markers, detect_markers
 
 hand_idx = nax - 1
 
-CALIBRATION_Z = 20
-PICK_Z = 10
-LIFT_Z = 30
-PLACE_Z = 20
+PICK_Z = 15
+CALIBRATION_Z = PICK_Z + 10
+LIFT_Z = PICK_Z + 20
+LIFT_Z2 = 60
+PLACE_Z = PICK_Z + 10
 
-pose1 = [ 90, -90, LIFT_Z, math.pi / 4, math.pi / 2 ]
+pose1 = [ 90, -90, LIFT_Z2, math.pi / 4, math.pi / 2 ]
 pose2 = [ 90, -90, PLACE_Z, math.pi / 4, math.pi / 2 ]
 
 
@@ -167,7 +168,7 @@ def calibrate_xy():
     num_points = 3
 
     for _ in range(num_trial):
-        for arm_y in np.linspace(-70, 70, num_points):
+        for arm_y in np.linspace(-60, 60, num_points):
             for arm_x in np.linspace(120, 230, num_points):
                 print(f'start move x:{arm_x} y:{arm_y}')
 
@@ -352,7 +353,8 @@ def test_xyz():
     for _ in move_to_ready():
         yield
 
-def approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
+
+def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     print('ready位置へ移動')
     for _ in move_to_ready():
         yield 
@@ -362,7 +364,7 @@ def approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
         yield
 
     print('ワークの把持のXY位置へ移動')
-    for _ in move_xyz(arm_x, arm_y, LIFT_Z):
+    for _ in move_xyz(arm_x, arm_y, LIFT_Z2):
         yield
 
     print('把持位置を下げる。')
@@ -370,24 +372,18 @@ def approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     for _ in move_xyz(arm_x, arm_y, z):
         yield
 
-
-
-def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
-    for _ in approach(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
-        yield
-
-    while np.isnan(tcp_height):
+    for _ in sleep(1):
         yield
 
     print('ハンドを閉じる。')
     for _ in close_hand():
         yield
 
-    for _ in sleep(2):
+    for _ in sleep(1):
         yield
 
     print('ワークを持ち上げる。')
-    for _ in move_xyz(arm_x, arm_y, LIFT_Z):
+    for _ in move_xyz(arm_x, arm_y, LIFT_Z2):
         yield
 
 
@@ -401,6 +397,10 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
 
     print('ハンドを開く。')
     for _ in open_hand():
+        yield
+
+    print('ワークのリフト位置へ移動')
+    for _ in move_linear(pose1):
         yield
 
     print('ready位置へ移動')
@@ -435,17 +435,6 @@ if __name__ == '__main__':
     layout = [
         [
             sg.Column([
-                [
-                    sg.Text('', key='-tcp-height-')
-                ]
-            ])
-            ,
-            sg.Column([
-                spin2(f'J{ch+1}', f'J{ch+1}', deg, servo_to_angle(ch, deg), -120, 150, True) 
-                for ch, deg in enumerate(servo_angles)
-            ])
-            ,
-            sg.Column([
                 spin('X', 'X' , 0,    0, 400 ),
                 spin('Y', 'Y' , 0, -300, 300 ),
                 spin('Z', 'Z' , 0,    0, 150 ),
@@ -454,7 +443,15 @@ if __name__ == '__main__':
                 spin('hand', 'hand', 0,   0, 100 )
             ])
             ,
-            sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
+            sg.Column([
+                [
+                    sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
+                ]
+                ,
+                [
+                    sg.Text('', key='-tcp-height-')
+                ]
+            ])
         ]
         ,
         [ sg.Button('Reset'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
@@ -485,18 +482,7 @@ if __name__ == '__main__':
                 params['prev-servo'] = servo_angles
                 write_params(params)
 
-        if event in jKeys:
-            ch = jKeys.index(event)
-            deg = float(values[event])
-
-            servo_deg = angle_to_servo(ch, deg)
-            show_next_pose(ch, servo_deg)
-
-            moving = move_joint(ch, deg)
-
-            window[servo_angle_keys[ch]].update(value=int(servo_deg))
-
-        elif event in pose_keys:
+        if event in pose_keys:
             pose = get_pose(values)
             moving = move_linear(pose)
 
@@ -526,6 +512,9 @@ if __name__ == '__main__':
             write_params(params)
 
             closeCamera()
+            if inference is not None:
+                inference.close()
+
             break
 
         elif event == "Calibrate":
@@ -535,9 +524,6 @@ if __name__ == '__main__':
             normal_vector = None
             basis_point = None
             plane_points.clear()
-
-            if 'hand-eye' in params:
-                del params['hand-eye']
 
         else:
             if 0.1 < time.time() - last_capture:
@@ -591,6 +577,13 @@ if __name__ == '__main__':
                     if test_pos is not None:
                         cv2.circle(frame, (int(test_pos.x), int(test_pos.y)), 5, (0,0,255), -1)
 
-                cv2.imshow("camera", frame)
+                h, w = frame.shape[:2]
+                assert h == w
+                if h <= 720:
+                    frame2 = frame
+                else:
+                    frame2 = cv2.resize(frame, (720, 720))
+
+                cv2.imshow("camera", frame2)
 
                 window.refresh()

@@ -14,6 +14,10 @@ def initCamera(params):
 
     WIDTH = 960
     HEIGHT = 720
+
+    WIDTH = 1920
+    HEIGHT = 1080
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
 
