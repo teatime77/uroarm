@@ -139,7 +139,8 @@ def read_params():
             "camera-index": 0,
             "prev-servo": [ 90 ] * 6,
             "servo-angle": [[ 1, 90]] * 6,
-            "marker-ids": [ 0, 1, 2, 3, 4 ]
+            "marker-ids": [ 0, 1, 2, 3, 4 ],
+            "cameras" : {}
         }
 
         write_params(params)

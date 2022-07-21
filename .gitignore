@@ -1,7 +1,6 @@
 __pycache__/
 venv/
 .vscode/
-model/
-data/
 arm.json
 joystick.py
+data/marker/*.png

@@ -61,7 +61,7 @@ def infer_img(img_que : Queue, result_que : Queue):
 
     model_file = 'ichigo_16.xml'
 
-    model = ie.read_model(model=f'model/{model_file}')
+    model = ie.read_model(model=f'data/model/{model_file}')
     compiled_model = ie.compile_model(model=model, device_name="GPU")
 
     input_layer_ir = next(iter(compiled_model.inputs))
