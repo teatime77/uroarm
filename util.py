@@ -5,6 +5,8 @@ import time
 import json
 import numpy as np
 import PySimpleGUI as sg
+import requests
+from tqdm import tqdm
 
 nax = 6
 move_time = 2
@@ -182,3 +184,24 @@ def show_pose(window, pose):
         
     for k, p in zip(["R1", "R2"], pose[3:]):
         window[k].Update(int(round(degree(p))))
+
+def download_file(url, file_path):
+    """python - Progress Bar while download file over http with Requests - Stack Overflow
+
+        https://stackoverflow.com/questions/37573483/progress-bar-while-download-file-over-http-with-requests
+    """
+
+    response = requests.get(url, stream=True)
+    total_size_in_bytes= int(response.headers.get('content-length', 0))
+    block_size = 1024 #1 Kibibyte
+    progress_bar = tqdm(total=total_size_in_bytes, unit='iB', unit_scale=True)
+
+    with open(file_path, 'wb') as file:
+        for data in response.iter_content(block_size):
+            progress_bar.update(len(data))
+            file.write(data)
+
+    progress_bar.close()
+
+    if total_size_in_bytes != 0 and progress_bar.n != total_size_in_bytes:
+        print("ERROR, something went wrong")

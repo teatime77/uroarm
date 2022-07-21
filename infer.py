@@ -1,3 +1,4 @@
+import os
 import queue
 from multiprocessing import Process, Queue, freeze_support
 import cv2
@@ -5,7 +6,7 @@ import numpy as np
 from openvino.runtime import Core
 from openvino.pyopenvino import ConstOutput
 import time
-from util import read_params
+from util import read_params, download_file
 from camera import initCamera, getCameraFrame, closeCamera
 
 def getInputImg(bmp):
@@ -59,9 +60,20 @@ def infer_img(img_que : Queue, result_que : Queue):
         device_name = ie.get_property(device_name=device, name="FULL_DEVICE_NAME")
         print(f"{device}: {device_name}")
 
-    model_file = 'ichigo_16.xml'
+    model_name = 'ichigo_16'
 
-    model = ie.read_model(model=f'data/model/{model_file}')
+    model_bin_file = f'data/model/{model_name}.bin'
+    if not os.path.isfile(model_bin_file):
+
+        print('downloading model file...')
+
+        url = f'http://lang.main.jp/uroa-data/model/{model_name}.bin'
+        download_file(url, model_bin_file)
+
+        print('download completed.')
+
+
+    model = ie.read_model(model=f'data/model/{model_name}.xml')
     compiled_model = ie.compile_model(model=model, device_name="GPU")
 
     input_layer_ir = next(iter(compiled_model.inputs))
