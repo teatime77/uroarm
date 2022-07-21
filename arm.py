@@ -7,8 +7,8 @@ import json
 import cv2
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, closeCamera, getCameraFrame
-from util import nax, jKeys, pose_keys, read_params, servo_angle_keys, radian, write_params, t_all, spin, spin2, degree, Vec2, Vec3, sleep, get_pose, show_pose
-from servo import init_servo, set_servo_angle, move_servo, move_all_servo, angle_to_servo, servo_to_angle, set_servo_param, servo_angles
+from util import nax, pose_keys, read_params, radian, write_params, get_move_time, set_move_time, spin, degree, Vec2, Vec3, sleep, get_pose, show_pose
+from servo import init_servo, set_servo_angle, angle_to_servo, servo_to_angle, servo_angles
 from kinematics import forward_kinematics, inverse_kinematics
 from marker import init_markers, detect_markers
 
@@ -37,9 +37,10 @@ def move_joint(ch, dst):
 
     src = servo_to_angle(ch, servo_angles[ch])
 
+    move_time = get_move_time()
     start_time = time.time()
     while True:
-        t = (time.time() - start_time) / t_all
+        t = (time.time() - start_time) / move_time
         if 1 <= t:
             break
 
@@ -58,9 +59,10 @@ def move_all_joints(dsts):
 
     srcs = [ servo_to_angle(ch, servo_angles[ch]) for ch in range(nax) ]
 
+    move_time = get_move_time()
     start_time = time.time()
     while True:
-        t = (time.time() - start_time) / t_all
+        t = (time.time() - start_time) / move_time
         if 1 <= t:
             break
 
@@ -90,15 +92,16 @@ def move_linear(dst):
 
     src = forward_kinematics(servo_angles)
 
+    move_time = get_move_time()
     with open('data/ik.csv', 'w') as f:
         f.write('time,J1,J2,J3,J4,J5,J6\n')
         start_time = time.time()
         while True:
             t = time.time() - start_time
-            if t_all <= t:
+            if move_time <= t:
                 break
 
-            r = t / t_all
+            r = t / move_time
 
             pose = [ r * d + (1 - r) * s for s, d in zip(src, dst) ]
 
@@ -161,14 +164,14 @@ def move_to_ready():
 def calibrate_xy():
     global tcp_height
 
-    tcp_scrs = []
-    arm_xyz = []
+    screen_coordinates = []
+    robot_coordinates = []
     tcp_heights = []
     num_trial = 2
     num_points = 3
 
     for _ in range(num_trial):
-        for arm_y in np.linspace(-60, 60, num_points):
+        for arm_y in np.linspace(-50, 50, num_points):
             for arm_x in np.linspace(120, 230, num_points):
                 print(f'start move x:{arm_x} y:{arm_y}')
 
@@ -204,8 +207,8 @@ def calibrate_xy():
                 print(f'move z end:{tcp_height:.1f}')
 
                 tcp_heights.append(tcp_height)
-                arm_xyz.append([arm_x, arm_y, arm_z])
-                tcp_scrs.append([tcp_scr.x, tcp_scr.y])
+                robot_coordinates.append([arm_x, arm_y, arm_z])
+                screen_coordinates.append([tcp_scr.x, tcp_scr.y])
 
                 # z = LIFT_Zの位置に移動する。
                 for _ in move_xyz(arm_x, arm_y, 50):
@@ -215,28 +218,28 @@ def calibrate_xy():
         yield 
 
     # スクリーン座標からアームのXY座標を予測する。
-    X = np.array(tcp_scrs)
-    Y = np.array(arm_xyz)
+    X = np.array(screen_coordinates)
+    Y = np.array(robot_coordinates)
 
-    reg = LinearRegression().fit(X, Y)
+    model = LinearRegression().fit(X, Y)
 
-    print('get_params', type(reg.get_params()), reg.get_params())
-    print('coef_', type(reg.coef_), reg.coef_)
-    print('intercept_', type(reg.intercept_), reg.intercept_)
+    print('get_params', type(model.get_params()), model.get_params())
+    print('coef_', type(model.coef_), model.coef_)
+    print('intercept_', type(model.intercept_), model.intercept_)
 
     params['hand-eye'] = {
-        'coef': reg.coef_.tolist(), 
-        'intercept': reg.intercept_.tolist()
+        'coef': model.coef_.tolist(), 
+        'intercept': model.intercept_.tolist()
     }
 
     write_params(params)
 
-    prd = reg.predict(X)
+    prd = model.predict(X)
 
     for dx, dy, dz in (Y - prd).tolist():
         print(f'dxyz 1:{dx:.1f} {dy:.1f} {dz:.1f}')
 
-    A = (reg.coef_.dot(X.transpose()) + reg.intercept_.reshape(3, 1)).transpose()
+    A = (model.coef_.dot(X.transpose()) + model.intercept_.reshape(3, 1)).transpose()
     B = Y - A
     for i in range(X.shape[0]):
         dx, dy, dz = B[i, :]
@@ -246,14 +249,13 @@ def calibrate_xy():
 
         f.write('scr-x,scr-y,tcp-height,arm-x,arm-y,arm-z,prd-arm-x,prd-arm-y,prd-arm-z\n')
 
-        for (arm_x, arm_y, arm_z), height, (scr_x, scr_y) in zip(arm_xyz, tcp_heights, tcp_scrs):
+        for (arm_x, arm_y, arm_z), height, (scr_x, scr_y) in zip(robot_coordinates, tcp_heights, screen_coordinates):
             X = np.array([[scr_x, scr_y]])
 
-            prd = reg.predict(X)
+            prd = model.predict(X)
             prd_arm_x, prd_arm_y, prd_arm_z = prd[0, :]
 
             f.write(f'{scr_x}, {scr_y}, {height}, {arm_x}, {arm_y}, {arm_z}, {prd_arm_x}, {prd_arm_y}, {prd_arm_z}\n')
-
 
 
 def show_next_pose(ch, servo_deg):
@@ -331,12 +333,12 @@ def get_arm_xyz_of_work():
 
     return work_scr_x, work_scr_y, arm_x, arm_y, arm_z
 
-def test_xyz():
+def test_xy():
     global test_pos
 
     h, w = frame.shape[:2]
     for scr_x in np.linspace(w / 3, w * 2 / 3, 4):
-        for scr_y in np.linspace(h // 3, h * 2 // 3, 4):
+        for scr_y in np.linspace(h // 2, h * 2 // 3, 4):
             arm_x, arm_y, arm_z = get_arm_xyz_from_screen(scr_x, scr_y)
 
             for _ in move_xyz(arm_x, arm_y, LIFT_Z):
@@ -355,6 +357,8 @@ def test_xyz():
 
 
 def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
+    old_move_time = set_move_time(1)
+
     print('ready位置へ移動')
     for _ in move_to_ready():
         yield 
@@ -407,12 +411,14 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     for _ in move_to_ready():
         yield 
 
+    set_move_time(old_move_time)
 
 
 if __name__ == '__main__':
     plane_points = []
     normal_vector = None
     basis_point = None
+    inference = None
 
     params = read_params()
 
@@ -422,19 +428,11 @@ if __name__ == '__main__':
     init_markers(params)
     initCamera(params)
 
-
-    if len(sys.argv) == 2:
-        from infer import Inference
-
-        inference = Inference()
-
-    else:
-        inference = None
-
     marker_table = np.array([[0] * 5] * len(marker_ids), dtype=np.float32)
     layout = [
         [
             sg.Column([
+                [ sg.Text('TCP pose', font=('Helvetica', 12)) ],
                 spin('X', 'X' , 0,    0, 400 ),
                 spin('Y', 'Y' , 0, -300, 300 ),
                 spin('Z', 'Z' , 0,    0, 150 ),
@@ -445,16 +443,20 @@ if __name__ == '__main__':
             ,
             sg.Column([
                 [
+                    sg.Text('Marker coordinates', font=('Helvetica', 12))
+                ]
+                ,
+                [
                     sg.Table(marker_table.tolist(), headings=['cam x', 'cam y', 'cam z', 'scr x', 'scr y'], auto_size_columns=False, col_widths=[6]*5, num_rows=len(marker_ids), key='-marker-table-')
                 ]
                 ,
                 [
-                    sg.Text('', key='-tcp-height-')
+                    sg.Text('TCP height', font=('Helvetica', 12)), sg.Text('', key='-tcp-height-')
                 ]
             ])
         ]
         ,
-        [ sg.Button('Reset'), sg.Button('Ready'), sg.Button('Pose1'), sg.Button('test'), sg.Button('Calibrate'), sg.Button('Grab'), sg.Button('Close')]
+        [ sg.Button('Reset'), sg.Button('Ready'), sg.Button('Adjust XY'), sg.Button('Test XY'), sg.Button('AI', size=(5,1)), sg.Button('Grab'), sg.Button('Close')]
     ]
 
     window = sg.Window('Robot Arm', layout, element_justification='c', finalize=True) # disable_minimize=True
@@ -494,11 +496,14 @@ if __name__ == '__main__':
         elif event == 'Ready':
             moving = move_to_ready()
 
-        elif event == 'Pose1':
-            moving = move_linear(pose1)
+        elif event == 'Test XY':
+            moving = test_xy()
 
-        elif event == 'test':
-            moving = test_xyz()
+        elif event == 'AI':
+            if inference is None:
+                from infer import Inference
+
+                inference = Inference()
 
         elif event == 'Grab':
             work_scr_x, work_scr_y, arm_x, arm_y, arm_z = get_arm_xyz_of_work()
@@ -517,7 +522,7 @@ if __name__ == '__main__':
 
             break
 
-        elif event == "Calibrate":
+        elif event == 'Adjust XY':
             moving = calibrate_xy()   
 
         elif event == 'Reset':     
@@ -564,15 +569,15 @@ if __name__ == '__main__':
 
                     tcp_cam, tcp_scr, tcp_height = get_tcp()
 
-                    window['-tcp-height-'].update(value=f'height:{tcp_height:.1f}')
+                    window['-tcp-height-'].update(value=f'{tcp_height:.1f}')
 
                     window['-marker-table-'].update(values=np.round(marker_table).tolist())
 
                     if tcp_scr is not None:
-                        cv2.circle(frame, (int(tcp_scr.x), int(tcp_scr.y)), 5, (0,255,0), -1)
+                        cv2.circle(frame, (int(tcp_scr.x), int(tcp_scr.y)), 10, (0, 0,255), -1)
 
                     if not np.isnan(cx):
-                        cv2.circle(frame, (int(cx), int(cy)), 10, (255,0,0), -1)
+                        cv2.circle(frame, (int(cx), int(cy)), 20, (255,0,0), -1)
 
                     if test_pos is not None:
                         cv2.circle(frame, (int(test_pos.x), int(test_pos.y)), 5, (0,0,255), -1)

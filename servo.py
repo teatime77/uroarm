@@ -4,7 +4,7 @@ import math
 import serial
 import cv2
 import PySimpleGUI as sg
-from util import nax, read_params, servo_angle_keys, radian, write_params, spin, spin2, degree, t_all, sleep
+from util import nax, read_params, servo_angle_keys, radian, write_params, spin, get_move_time
 import numpy as np
 
 
@@ -83,9 +83,10 @@ def set_servo_angle(ch : int, deg : float):
 def move_servo(ch, dst):
     src = servo_angles[ch]
 
+    move_time = get_move_time()
     start_time = time.time()
     while True:
-        t = (time.time() - start_time) / t_all
+        t = (time.time() - start_time) / move_time
         if 1 <= t:
             break
 
@@ -98,9 +99,11 @@ def move_servo(ch, dst):
 def move_all_servo(dsts):
     srcs = list(servo_angles)
 
+    move_time = get_move_time()
     start_time = time.time()
+
     while True:
-        t = (time.time() - start_time) / t_all
+        t = (time.time() - start_time) / move_time
         if 1 <= t:
             break
 

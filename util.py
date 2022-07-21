@@ -7,7 +7,7 @@ import numpy as np
 import PySimpleGUI as sg
 
 nax = 6
-t_all = 2
+move_time = 2
 
 jKeys = ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']
 
@@ -90,6 +90,18 @@ class Vec3:
 
     def __sub__(self, other):
         return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+
+def get_move_time():
+    return move_time
+
+def set_move_time(t):
+    global move_time
+
+    old_move_time = move_time
+    move_time = t
+
+    return old_move_time
+
 
 def sleep(sec):
     start_time = time.time()

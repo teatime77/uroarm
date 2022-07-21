@@ -29,7 +29,7 @@ def init_markers(params):
 def detect_markers(marker_ids, frame):
     corners, ids, rejectedImgPoints = aruco.detectMarkers(frame, dictionary)
 
-    aruco.drawDetectedMarkers(frame, corners, ids)            
+    # aruco.drawDetectedMarkers(frame, corners, ids)            
 
     marker_length = 15
     
@@ -39,10 +39,6 @@ def detect_markers(marker_ids, frame):
         return frame, vecs
 
     for corner, id in zip(corners, ids):
-        if not id in marker_ids:
-            continue
-
-        idx = marker_ids.index(id)
 
         rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corner, marker_length, camera_matrix, dist_coeffs)
 
@@ -50,16 +46,33 @@ def detect_markers(marker_ids, frame):
         tvec = np.squeeze(tvec)
         rvec = np.squeeze(rvec)
 
-        frame = aruco.drawAxis(frame, camera_matrix, dist_coeffs, rvec, tvec, 10)
+        # frame = aruco.drawAxis(frame, camera_matrix, dist_coeffs, rvec, tvec, 10)
         
         assert corner.shape == (1, 4, 2)
         corner = np.squeeze(corner)
         assert corner.shape == (4, 2)
 
+        left_top = corner.min(axis=0)
+
         pxy = corner.mean(axis=0)
+
+        cv2.putText(frame, text=f'{id[0]}', org=(left_top[0], left_top[1]),
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=1.5,
+            color=(0, 0, 255),
+            thickness=4,
+            lineType=cv2.LINE_AA
+        )
+
+
 
         tvec[1] = - tvec[1]
 
-        vecs[idx] = np.concatenate([tvec, pxy])
+
+        if id in marker_ids:
+
+            idx = marker_ids.index(id)
+
+            vecs[idx] = np.concatenate([tvec, pxy])
 
     return frame, vecs

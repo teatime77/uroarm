@@ -4,7 +4,7 @@ import math
 import serial
 import cv2
 import PySimpleGUI as sg
-from util import nax, jKeys, read_params, servo_angle_keys, radian, write_params, spin, spin2, degree, t_all, sleep
+from util import nax, jKeys, read_params, servo_angle_keys, radian, write_params
 from servo import init_servo, set_servo_angle, move_servo, move_all_servo, angle_to_servo, servo_to_angle, set_servo_param, servo_angles
 from camera import initCamera, closeCamera, getCameraFrame
 from arm import move_joint

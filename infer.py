@@ -1,11 +1,7 @@
-import sys
 import queue
-import glob
 from multiprocessing import Process, Queue, freeze_support
 import cv2
-# import matplotlib.pyplot as plt
 import numpy as np
-import openvino
 from openvino.runtime import Core
 from openvino.pyopenvino import ConstOutput
 import time
@@ -24,7 +20,7 @@ def getInputImg(bmp):
 
     return img
 
-def getBox(scores, boxes, shape):
+def get_center_of_max_score_box(scores, boxes, bmp_shape):
     max_score = 0
     max_score_idx = 0
     for score_idx, score in enumerate(scores):
@@ -40,8 +36,8 @@ def getBox(scores, boxes, shape):
     box = boxes[max_score_idx]
     print("    ", scores[max_score_idx].shape, box.shape, max_idx, max_score, score[max_idx], box[0, a1:a2, row, col])
 
-    bmp_h = shape[0]
-    bmp_w = shape[1]
+    bmp_h = bmp_shape[0]
+    bmp_w = bmp_shape[1]
 
     num_box_h = box.shape[2]
     num_box_w = box.shape[3]
@@ -49,10 +45,10 @@ def getBox(scores, boxes, shape):
     box_h = bmp_h / num_box_h
     box_w = bmp_w / num_box_w
 
-    cy = int(row * box_h + box_h / 2) 
-    cx = int(col * box_w + box_w / 2)
+    center_y = int(row * box_h + box_h / 2) 
+    center_x = int(col * box_w + box_w / 2)
 
-    return cx, cy
+    return center_x, center_y
 
 def infer_img(img_que : Queue, result_que : Queue):
     ie = Core()
@@ -63,9 +59,6 @@ def infer_img(img_que : Queue, result_que : Queue):
         device_name = ie.get_property(device_name=device, name="FULL_DEVICE_NAME")
         print(f"{device}: {device_name}")
 
-    model_file = 'model.xml'
-    model_file = 'cola_720.xml'
-    model_file = 'cola_16.xml'
     model_file = 'ichigo_16.xml'
 
     model = ie.read_model(model=f'model/{model_file}')
@@ -110,9 +103,9 @@ def infer_img(img_que : Queue, result_que : Queue):
                 box_idx = box_names.index(name)
                 boxes[box_idx] = v
 
-        cx, cy = getBox(scores, boxes, bmp.shape)
+        center_x, center_y = get_center_of_max_score_box(scores, boxes, bmp.shape)
 
-        result_que.put((cx, cy))
+        result_que.put((center_x, center_y))
 
 class Inference():
     def __init__(self):
@@ -185,7 +178,15 @@ if __name__ == '__main__':
             cv2.circle(frame, (int(cx), int(cy)), 10, (255,0,0), -1)
 
 
-        cv2.imshow('window', frame)
+        h, w = frame.shape[:2]
+        assert h == w
+        if h <= 720:
+            frame2 = frame
+        else:
+            frame2 = cv2.resize(frame, (720, 720))
+
+        cv2.imshow('window', frame2)
+
         k = cv2.waitKey(1)
         if k == ord('q'):
             inference.close()

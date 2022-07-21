@@ -12,24 +12,18 @@ def initCamera(params):
     print('EXPOSURE'  , cap.get(cv2.CAP_PROP_EXPOSURE))
     print('FPS'       , cap.get(cv2.CAP_PROP_FPS))
 
-    WIDTH = 960
-    HEIGHT = 720
+    for w, h in [[ 1920, 1080 ], [ 1280, 720 ], [ 960, 720 ] ]:
 
-    WIDTH = 1920
-    HEIGHT = 1080
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH , w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+        WIDTH  = int( cap.get(cv2.CAP_PROP_FRAME_WIDTH) )
+        HEIGHT = int( cap.get(cv2.CAP_PROP_FRAME_HEIGHT) )
+        if w == WIDTH and h == HEIGHT:
 
-    w = int( cap.get(cv2.CAP_PROP_FRAME_WIDTH ) )
-    h = int( cap.get(cv2.CAP_PROP_FRAME_HEIGHT) )
-    if w != WIDTH or h != HEIGHT:
+            break
 
-        print(f'width:{w} height:{h} ==================================================')
-
-        WIDTH  = w
-        HEIGHT = h
-
+    print(f'width:{WIDTH} height:{HEIGHT}')
 
 def getCameraFrame():
     ret, frame = cap.read()

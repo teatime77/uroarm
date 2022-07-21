@@ -4,13 +4,15 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 import itertools
-from util import t_all
+from util import get_move_time
 
 pi = math.pi
 
 class SCurve:
     def __init__(self, S_all):
-        t1 = t_all / 2.0
+        move_time = get_move_time()
+
+        t1 = move_time / 2.0
         self.t1 = t1
         self.S1 = S_all / 2.0
         self.vmax = S_all / t1
