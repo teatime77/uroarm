@@ -1,3 +1,4 @@
+from cmath import isnan
 import sys
 import time
 import math
@@ -15,12 +16,10 @@ from marker import init_markers, detect_markers
 hand_idx = nax - 1
 
 PICK_Z = 15
-CALIBRATION_Z = PICK_Z + 10
-LIFT_Z = PICK_Z + 20
-LIFT_Z2 = 60
-PLACE_Z = PICK_Z + 10
+PLACE_Z = 25
+LIFT_Z = 50
 
-pose1 = [ 90, -90, LIFT_Z2, math.pi / 4, math.pi / 2 ]
+pose1 = [ 90, -90, LIFT_Z, math.pi / 4, math.pi / 2 ]
 pose2 = [ 90, -90, PLACE_Z, math.pi / 4, math.pi / 2 ]
 
 
@@ -84,7 +83,7 @@ def close_hand():
     for _ in move_joint(hand_idx, 30):
         yield
 
-def move_linear(dst):
+def move_linear(dst, move_time=None):
     global move_linear_ok, is_moving
 
     is_moving = True
@@ -92,7 +91,9 @@ def move_linear(dst):
 
     src = forward_kinematics(servo_angles)
 
-    move_time = get_move_time()
+    if move_time is None:
+        move_time = get_move_time()
+
     with open('data/ik.csv', 'w') as f:
         f.write('time,J1,J2,J3,J4,J5,J6\n')
         start_time = time.time()
@@ -149,9 +150,9 @@ def move_xyz_now(x, y, z):
             set_angle(ch, deg)
 
 
-def move_xyz(x, y, z):
+def move_xyz(x, y, z, move_time=None):
     pose = get_pose_from_xyz(x, y, z)
-    for _ in move_linear(pose):
+    for _ in move_linear(pose, move_time):
         yield
 
 def move_to_ready():
@@ -168,20 +169,21 @@ def calibrate_xy():
     robot_coordinates = []
     tcp_heights = []
     num_trial = 2
-    num_points = 3
+    num_points = 2
+    move_time = 1
 
     for _ in range(num_trial):
         for arm_y in np.linspace(-50, 50, num_points):
-            for arm_x in np.linspace(120, 230, num_points):
+            for arm_x in np.linspace(120, 200, num_points):
                 print(f'start move x:{arm_x} y:{arm_y}')
 
                 # z = LIFT_Zの位置に移動する。
                 arm_z = LIFT_Z
-                for _ in move_xyz(arm_x, arm_y, arm_z):
+                for _ in move_xyz(arm_x, arm_y, arm_z, move_time):
                     yield
                 
                 print("move xy end")
-                for _ in sleep(3):
+                for _ in sleep(1):
                     yield
                 tcp_height = np.nan
 
@@ -189,14 +191,14 @@ def calibrate_xy():
                     while np.isnan(tcp_height):
                         yield
 
-                    diff = tcp_height - CALIBRATION_Z
+                    diff = tcp_height - PLACE_Z
                     print(f'move z trial:{trial} height:{tcp_height:.1f}')
                     if abs(diff) < 2:
                         break
 
                     # PICK_Zの位置に移動する。
                     arm_z -= diff
-                    for _ in move_xyz(arm_x, arm_y, arm_z):
+                    for _ in move_xyz(arm_x, arm_y, arm_z, move_time):
                         yield
 
                     for _ in sleep(1):
@@ -211,7 +213,7 @@ def calibrate_xy():
                 screen_coordinates.append([tcp_scr.x, tcp_scr.y])
 
                 # z = LIFT_Zの位置に移動する。
-                for _ in move_xyz(arm_x, arm_y, 50):
+                for _ in move_xyz(arm_x, arm_y, LIFT_Z, move_time):
                     yield
 
     for _ in move_to_ready():
@@ -337,8 +339,8 @@ def test_xy():
     global test_pos
 
     h, w = frame.shape[:2]
-    for scr_x in np.linspace(w / 3, w * 2 / 3, 4):
-        for scr_y in np.linspace(h // 2, h * 2 // 3, 4):
+    for scr_x in np.linspace(w / 3, w * 2 / 3, 2):
+        for scr_y in np.linspace(h // 2, h * 2 // 3, 2):
             arm_x, arm_y, arm_z = get_arm_xyz_from_screen(scr_x, scr_y)
 
             for _ in move_xyz(arm_x, arm_y, LIFT_Z):
@@ -368,11 +370,11 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
         yield
 
     print('ワークの把持のXY位置へ移動')
-    for _ in move_xyz(arm_x, arm_y, LIFT_Z2):
+    for _ in move_xyz(arm_x, arm_y, LIFT_Z):
         yield
 
     print('把持位置を下げる。')
-    z = arm_z - (CALIBRATION_Z - PICK_Z)
+    z = arm_z - (PLACE_Z - PICK_Z)
     for _ in move_xyz(arm_x, arm_y, z):
         yield
 
@@ -387,9 +389,8 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
         yield
 
     print('ワークを持ち上げる。')
-    for _ in move_xyz(arm_x, arm_y, LIFT_Z2):
+    for _ in move_xyz(arm_x, arm_y, LIFT_Z):
         yield
-
 
     print('ワークのリフト位置へ移動')
     for _ in move_linear(pose1):

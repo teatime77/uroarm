@@ -4,3 +4,5 @@ venv/
 arm.json
 joystick.py
 data/marker/*.png
+data/model/ichigo_16.bin
+data/*.csv
