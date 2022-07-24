@@ -2,7 +2,6 @@ import sys
 import time
 import math
 import serial
-import cv2
 import PySimpleGUI as sg
 from util import nax, read_params, servo_angle_keys, radian, write_params, spin, get_move_time
 import numpy as np
@@ -44,7 +43,7 @@ def init_servo(params_arg):
     try:
         ser = serial.Serial(com_port, 115200, timeout=1, write_timeout=1)
     except serial.serialutil.SerialException: 
-        print(f'指定されたシリアルポートがありません。{com_port}')
+        print(f'The specified serial port does not exist.{com_port}')
         sys.exit(0)
 
 def set_servo_param(ch, scale, offset):

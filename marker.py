@@ -1,4 +1,3 @@
-### arucoマーカーを生成して、画像として保存する
 import sys
 import time
 import cv2
@@ -42,7 +41,7 @@ def detect_markers(marker_ids, frame):
 
         rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corner, marker_length, camera_matrix, dist_coeffs)
 
-        # 不要なaxisを除去
+        # Remove single-dimensional entries from the shape of an array.
         tvec = np.squeeze(tvec)
         rvec = np.squeeze(rvec)
 
@@ -64,10 +63,7 @@ def detect_markers(marker_ids, frame):
             lineType=cv2.LINE_AA
         )
 
-
-
         tvec[1] = - tvec[1]
-
 
         if id in marker_ids:
 

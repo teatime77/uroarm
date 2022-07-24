@@ -1,6 +1,6 @@
-"""arucoマーカーを生成して、画像として保存する
+"""Calibrate Camera
 
-以下を参考にした。
+See below
     naoki-mizuno/charuco_webcam.py
     https://gist.github.com/naoki-mizuno/c80e909be82434ddae202ff52ea1f80a
 """

@@ -1,9 +1,6 @@
-import time
 import math
 import numpy as np
-import PySimpleGUI as sg
-import json
-from util import nax, jKeys, radian, write_params, spin, spin2, degree, Vec2, arctan2p
+from util import nax, radian, degree, Vec2
 from servo import servo_to_angle
 
 L0, L1, L2, L3, L4 = [ 111, 105, 98, 25, 167 - 10 ]
@@ -83,16 +80,14 @@ def inverse_kinematics(pose):
 
     theta2 = np.pi - theta
     p4 = tcp + L4 * Vec2(math.cos(theta2), math.sin(theta2))
-    # print(f'p4: %d %d' % (int(- p4.x), int(p4.y)))
 
-    # tcpからp4に向かう単位ベクトル
+    # unit vector from tcp to p4
     et = (p4 - tcp).unit()
 
-    # p4からp3に向かう単位ベクトル
+    # unit vector from p4 to p3
     e4 = et.rot(radian(90))
 
     p3 = p4 + L3 * e4
-    # print(f'p3: %d %d' % (int(- p3.x), int(p3.y)))
 
     l = (p3 - p1).len()
 
@@ -107,16 +102,13 @@ def inverse_kinematics(pose):
 
     alpha = math.acos(cos_alpha)    
 
-    # p3からp1に向かう単位ベクトル
+    # unit vector from p3 to p1
     e31 = (p1 - p3).unit()
 
-    # p3からp2に向かう単位ベクトル
+    # unit vector from p3 to p2
     e32 = e31.rot(-alpha)
 
-    # print('e31:%.2f %.2f e32:%.2f %.2f alpha:%.1f' % (e31.x, e31.y, e32.x, e32.y, degree(alpha)))
-
     p2 = p3 + L2 * e32
-    # print(f'p2: %d %d' % (int(- p2.x), int(p2.y)))
 
     ts = [0] * (nax - 1)
 
@@ -131,8 +123,5 @@ def inverse_kinematics(pose):
     ts[4] = phi
 
     ts = [ normalize_radian(rad) for rad in ts ]
-
-    # print(f'IK p1:{p1} p2:{p2} p3:{p3} p4:{p4} tcp:{tcp} x:{x:.1f} y:{y:.1f} z:{z:.1f} theta:{degree(theta):.1f} r:{r:.1f}')
-    # print('   js', [f'{degree(j):.1f}' for j in ts])
 
     return ts

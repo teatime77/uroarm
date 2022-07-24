@@ -80,9 +80,6 @@ def calibrate_angle(event):
 
     angle1, angle2 = datum_angles[ch]
 
-    # scale * angle1 + offset = servo1
-    # scale * angle2 + offset = servo2
-
     offset = (angle2 * servo1 - angle1 * servo2) / (angle2 - angle1)
     if abs(angle1) < abs(angle2):
         scale = (servo2 - offset) / angle2

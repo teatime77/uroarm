@@ -1,11 +1,12 @@
-# 【python/OpenCV】カメラ映像をキャプチャするプログラム
-# https://rikoubou.hatenablog.com/entry/2019/03/07/153430
+"""Capture images from the camera
+"""
 
 import cv2
 
 def initCamera(params):
     global cap, WIDTH, HEIGHT
 
+    # If multiple cameras are connected to PC, change camera-index in data\arm.json.
     cap = cv2.VideoCapture(params['camera-index'])
 
     print('BRIGHTNESS', cap.get(cv2.CAP_PROP_BRIGHTNESS))
@@ -42,6 +43,5 @@ def getCameraFrame():
     return frame
 
 def closeCamera():
-    # キャプチャをリリースして、ウィンドウをすべて閉じる
     cap.release()
     cv2.destroyAllWindows()

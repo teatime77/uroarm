@@ -1,7 +1,8 @@
+"""S-curve acceleration/deceleration
+"""
+
 import math
-from turtle import color
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 import itertools
 from util import get_move_time
@@ -85,29 +86,29 @@ if __name__ == '__main__':
 
         dt = 2 * sc.t1 / cnt
 
-        # 躍度
+        # jerk
         ax = fig.add_subplot(4, 2, 1 + idx)
         ax.plot(ts, [sc.jerk(t) for t in ts], color='blue')
-        ax.set_title('躍度', fontname="Meiryo")
+        ax.set_title('jerk', fontname="Meiryo")
 
-        # 加速度
+        # acceleration
         ax = fig.add_subplot(4, 2, 3 + idx)
         ax.plot(ts, [sc.acc(t) for t in ts], color='blue')
         ax.plot(ts, list(itertools.accumulate([sc.jerk(t) * dt for t in ts])), color='red')
-        ax.set_title('加速度', fontname="Meiryo")
+        ax.set_title('acceleration', fontname="Meiryo")
 
-        # 速度
+        # velocity
         ax = fig.add_subplot(4, 2, 5 + idx)
         ax.plot(ts, [sc.vel(t) for t in ts], color='blue')
         ax.plot(ts, list(itertools.accumulate([sc.acc(t) * dt for t in ts])), color='red')
-        ax.set_title('速度', fontname="Meiryo")
+        ax.set_title('velocity', fontname="Meiryo")
 
-        # 距離
+        # distance
         ax = fig.add_subplot(4, 2, 7 + idx)
         # ax.set_ylim(0, 1.1 * 2 * sc.S1)
         ax.plot(ts, [sc.dist(t) for t in ts], color='blue')
         ax.plot(ts, list(itertools.accumulate([sc.vel(t) * dt for t in ts])), color='red')
-        ax.set_title('距離', fontname="Meiryo")
+        ax.set_title('distance', fontname="Meiryo")
 
     fig.tight_layout()
 

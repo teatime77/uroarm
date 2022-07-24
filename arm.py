@@ -4,7 +4,6 @@ import time
 import math
 import numpy as np
 import PySimpleGUI as sg
-import json
 import cv2
 from sklearn.linear_model import LinearRegression
 from camera import initCamera, closeCamera, getCameraFrame
@@ -177,7 +176,6 @@ def calibrate_xy():
             for arm_x in np.linspace(120, 200, num_points):
                 print(f'start move x:{arm_x} y:{arm_y}')
 
-                # z = LIFT_Zの位置に移動する。
                 arm_z = LIFT_Z
                 for _ in move_xyz(arm_x, arm_y, arm_z, move_time):
                     yield
@@ -196,7 +194,6 @@ def calibrate_xy():
                     if abs(diff) < 2:
                         break
 
-                    # PICK_Zの位置に移動する。
                     arm_z -= diff
                     for _ in move_xyz(arm_x, arm_y, arm_z, move_time):
                         yield
@@ -212,14 +209,13 @@ def calibrate_xy():
                 robot_coordinates.append([arm_x, arm_y, arm_z])
                 screen_coordinates.append([tcp_scr.x, tcp_scr.y])
 
-                # z = LIFT_Zの位置に移動する。
                 for _ in move_xyz(arm_x, arm_y, LIFT_Z, move_time):
                     yield
 
     for _ in move_to_ready():
         yield 
 
-    # スクリーン座標からアームのXY座標を予測する。
+    # predict arm coordinate from screen coordinate
     X = np.array(screen_coordinates)
     Y = np.array(robot_coordinates)
 
@@ -361,19 +357,16 @@ def test_xy():
 def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     old_move_time = set_move_time(1)
 
-    print('ready位置へ移動')
     for _ in move_to_ready():
         yield 
 
-    print('ハンドを開く。')
     for _ in open_hand():
         yield
 
-    print('ワークの把持のXY位置へ移動')
     for _ in move_xyz(arm_x, arm_y, LIFT_Z):
         yield
 
-    print('把持位置を下げる。')
+    # Lower the hand
     z = arm_z - (PLACE_Z - PICK_Z)
     for _ in move_xyz(arm_x, arm_y, z):
         yield
@@ -381,34 +374,28 @@ def grab(work_scr_x, work_scr_y, arm_x, arm_y, arm_z):
     for _ in sleep(1):
         yield
 
-    print('ハンドを閉じる。')
     for _ in close_hand():
         yield
 
     for _ in sleep(1):
         yield
 
-    print('ワークを持ち上げる。')
+    # Raise the hand
     for _ in move_xyz(arm_x, arm_y, LIFT_Z):
         yield
 
-    print('ワークのリフト位置へ移動')
     for _ in move_linear(pose1):
         yield
 
-    print('ワークのプレース位置へ移動')
     for _ in move_linear(pose2):
         yield
 
-    print('ハンドを開く。')
     for _ in open_hand():
         yield
 
-    print('ワークのリフト位置へ移動')
     for _ in move_linear(pose1):
         yield
 
-    print('ready位置へ移動')
     for _ in move_to_ready():
         yield 
 
@@ -560,7 +547,7 @@ if __name__ == '__main__':
 
                             marker_table[ch, :] = vec
 
-                            # zは常に正
+                            # z should be positive.
                             marker_table[ch, 2] = np.abs(marker_table[ch, 2])
 
                     if normal_vector is None:

@@ -3,7 +3,6 @@ import numpy as np
 from cv2 import aruco
 import cv2
 
-# マーカーの保存先
 dir_marker = 'data/marker'
 
 def make_board():
@@ -34,22 +33,18 @@ def make_board():
     print(f'board image file is created: {file_path}')
 
 def make_markers():
-    ### --- parameter --- ###
 
-    # 生成するマーカー用のパラメータ
     cols = 5
-    num_mark = cols * cols #個数
-    size_mark = 500 #マーカーのサイズ
+    num_mark = cols * cols
+    size_mark = 500
 
-    ### --- マーカーを生成して保存する --- ###
-    # マーカー種類を呼び出し
     dict_aruco = aruco.Dictionary_get(aruco.DICT_4X4_50)
 
     mg = size_mark // 2
     bg = np.full(( cols * (mg + size_mark) + mg, cols * (mg + size_mark) + mg), 255, dtype=np.uint8)
     for count in range(num_mark) :
 
-        id_mark = count #countをidとして流用
+        id_mark = count
         img_mark = aruco.drawMarker(dict_aruco, id_mark, size_mark)
 
         row = count  % cols
